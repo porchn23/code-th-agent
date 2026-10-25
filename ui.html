@@ -1052,10 +1052,10 @@ async function activateSession(id) {
   renderSidebar();
   renderChat();
   if (curWs !== previousWorkspace) await onWorkspaceChange().catch((error) => console.error("โหลดโปรเจกต์ของแชตไม่สำเร็จ", error));
-  else { updateProjectHeading(); renderRunResults(); }
+  else { updateProjectHeading(); renderRunResults(); renderWorkspaceTabs(); showWorkspaceTabContent(); }
 }
 
-async function showProjectView() {
+async function showProjectView(panel = "files") {
   $("chatTab").classList.remove("active");
   $("chatTab").setAttribute("aria-selected", "false");
   $("projectTab").classList.add("active");
@@ -1067,6 +1067,7 @@ async function showProjectView() {
   if (!projectWorkspaces.length) await refreshWs();
   updateProjectHeading();
   await renderProjectFiles();
+  if (panel === "runs") openRunsTab(true);
 }
 
 function showChatView() {
@@ -1164,6 +1165,14 @@ function stashCurrentEditorTab() {
   tab.original = editorOriginal;
 }
 
+function getSessionRuns(session = active()) {
+  const runs = [];
+  for (const entry of session?.entries || []) {
+    if (entry.type === "activity") for (const run of entry.runs || []) runs.push(run);
+  }
+  return runs;
+}
+
 function renderWorkspaceTabs() {
   const host = $("workspaceTabList");
   if (!host) return;
@@ -1193,8 +1202,8 @@ function renderWorkspaceTabs() {
     host.appendChild(item);
   };
   for (const tab of openEditorTabs) addTab(tab.path, tab.path.split(/[\\/]/).pop(), tab.content !== tab.original);
-  if (runsTabOpen) addTab(RUNS_TAB, "ผลรัน");
-  else {
+  if (getSessionRuns().length && runsTabOpen) addTab(RUNS_TAB, "ผลรัน");
+  else if (getSessionRuns().length) {
     const add = document.createElement("button");
     add.type = "button";
     add.className = "workspace-tab-add";
@@ -1206,7 +1215,7 @@ function renderWorkspaceTabs() {
 }
 
 function showWorkspaceTabContent() {
-  const showingRuns = activeWorkspaceTab === RUNS_TAB && runsTabOpen;
+  const showingRuns = activeWorkspaceTab === RUNS_TAB && runsTabOpen && getSessionRuns().length > 0;
   $("editorPane").hidden = showingRuns;
   $("runDock").hidden = !showingRuns;
   if (showingRuns) { renderRunResults(); return; }
@@ -1239,6 +1248,7 @@ function showWorkspaceTabContent() {
 
 function selectWorkspaceTab(id) {
   if (id !== RUNS_TAB && !openEditorTabs.some((tab) => tab.path === id)) return;
+  if (id === RUNS_TAB && !getSessionRuns().length) return;
   stashCurrentEditorTab();
   activeWorkspaceTab = id;
   renderWorkspaceTabs();
@@ -1246,6 +1256,7 @@ function selectWorkspaceTab(id) {
 }
 
 function openRunsTab(select = true) {
+  if (!getSessionRuns().length) return;
   stashCurrentEditorTab();
   runsTabOpen = true;
   if (select) activeWorkspaceTab = RUNS_TAB;
@@ -1351,18 +1362,14 @@ document.addEventListener("keydown", (event) => {
 function renderRunResults() {
   const pane = $("runPane");
   if (!pane || pane.hidden) return;
-  const session = active();
-  const runs = [];
-  for (const entry of session?.entries || []) {
-    if (entry.type === "activity") for (const run of entry.runs || []) runs.push(run);
-  }
+  const runs = getSessionRuns();
   pane.innerHTML = runs.length
     ? runs.slice().reverse().map((run, index) =>
         '<details class="run-card" ' + (index === 0 ? "open" : "") + '><summary><span class="' + (run.code === 0 ? "run-ok" : "run-fail") + '">' +
         (run.code === 0 ? "✓" : "×") + ' exit ' + esc(String(run.code)) + '</span> · ' + esc(String(run.cmd || "คำสั่ง")) +
         ' <span class="pane-caption">(' + esc(String(run.ms || 0)) + ' ms)</span></summary><pre>' + esc(run.text || "(ไม่มีผลลัพธ์)") + '</pre></details>'
       ).join("")
-    : '<div class="empty-note">ผลรันของแชตนี้จะแสดงที่นี่เมื่อใช้โหมดเขียนโค้ด</div>';
+    : "";
 }
 
 const workspaceDialog = $("workspaceDialog");

@@ -22,3 +22,5 @@ npm-debug.log*
 
 agent_users.json
 agent_workspaces.json
+agent_sessions.json
+/workspaces/

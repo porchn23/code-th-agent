@@ -18,6 +18,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { safePathInRoot, fetchWithPublicRedirects } = require("./security-guards.js");
 const os = require("node:os");
 const readline = require("node:readline");
 const { execFile } = require("node:child_process");
@@ -211,7 +212,7 @@ const CODE_TOOLS = [
     function: {
       name: "run_command",
       description:
-        "Run a shell command in the project directory (Windows PowerShell, 15s default timeout) and return stdout/stderr + exit code. Use to run code and tests. NEVER call this to verify nothing — the verification gate requires real command output before you claim any fix is done.",
+        "Run a shell command in the project directory using the server process's full OS permissions. Available to admins only; command-pattern blocking is not an OS sandbox. Only use when the user explicitly asks for command execution or code verification. Returns stdout/stderr + exit code.",
       parameters: {
         type: "object",
         properties: {
@@ -281,13 +282,14 @@ const TOOL_CREATE = {
   },
 };
 const getTools = (mode, planExtra = {}) => {
+  const trusted = planExtra.trusted !== false;
   const base = mode === "code" ? [...TOOL_SPECS, ...CODE_TOOLS] : [...TOOL_SPECS];
   return [
-    ...base,
-    TOOL_CREATE,
+    ...base.filter((t) => trusted || t.function.name !== "run_command"),
+    ...(trusted ? [TOOL_CREATE] : []),
     ...(planExtra.save ? [PLAN_SPECS[0]] : []),
     ...(planExtra.done ? [PLAN_SPECS[1]] : []),
-    ...loadSkills().map((s) => ({
+    ...(trusted ? loadSkills() : []).map((s) => ({
       type: "function",
       function: {
         name: s.name,
@@ -304,6 +306,11 @@ const CODE_RULES = `
 - Understand before editing: file_grep/file_read first, then change ONE thing at a time.
 - Edit with file_edit (exact oldString -> newString). Never rewrite whole files.
 - VERIFICATION GATE: before claiming anything is fixed/done/works, run it with run_command (e.g. node tests, node file.js) and include the real output in your answer. If it fails, fix and re-run. A claim without command output is not allowed.`;
+const MEMBER_CODE_RULES = `
+== CODE MODE ==
+- Understand before editing: file_grep/file_read first, then change ONE thing at a time.
+- Edit with file_edit (exact oldString -> newString). Never rewrite whole files.
+- Verification: inspect the edited files with file_read. Do not claim runtime verification; run_command is admin-only.`;
 // Circuit 2 — สอนพอให้ model ใช้ tool_create ถูกเอง (contract: JSON argv[2] in / one JSON object out)
 const TOOL_RULES = `
 == EXTENDING YOURSELF (tool library) ==
@@ -420,10 +427,7 @@ const rootOf = (ctx) => (ctx && ctx.root) || PROJECT_ROOT;
 // safe path: จำกัดทุก tool ไฟล์ให้อยู่ใต้ "รากประจำ run" + แบนไฟล์ลับ/รัฐของระบบ
 function safeProjectPath(rel, root) {
   const R = root || PROJECT_ROOT;
-  const abs = path.resolve(R, String(rel || ""));
-  if (abs !== R && !abs.startsWith(R + path.sep)) {
-    throw new Error("Path escapes the project directory");
-  }
+  const abs = safePathInRoot(R, String(rel || ""));
   if (/openrouter_key|node_modules|\.git|\.agent_memory|agent_playbook\.json|agent-events\.jsonl/.test(abs)) {
     throw new Error("Access denied (protected file)");
   }
@@ -621,7 +625,8 @@ function toolFileGrep({ pattern, include }, ctx) {
   const walk = (dir) => {
     for (const name of fs.readdirSync(dir)) {
       const p = path.join(dir, name);
-      let st; try { st = fs.statSync(p); } catch { continue; }
+      let st; try { st = fs.lstatSync(p); } catch { continue; }
+      if (st.isSymbolicLink()) continue;
       if (st.isDirectory()) { if (/^(node_modules|\.git|reports)$/.test(name)) continue; walk(p); continue; }
       if (glob && !glob.test(name)) continue;
       if (!TEXT_EXT.test(name) || /openrouter_key|\.agent_memory|agent_playbook|agent-events/.test(name)) continue;
@@ -1078,7 +1083,8 @@ function snapshotProject(ctx) {
         const relw = path.relative(R, abs);
         if (CKPT_SKIP.test(relw)) continue;
         let st = null;
-        try { st = fs.statSync(abs); } catch { continue; }
+        try { st = fs.lstatSync(abs); } catch { continue; }
+        if (st.isSymbolicLink()) continue;
         if (st.isDirectory()) { walk(abs); continue; }
         if (TEXT_EXT.test(abs) && st.size <= 300000) addBackup(abs, rec);
       }
@@ -1355,12 +1361,10 @@ function stripHtml(html) {
 }
 
 async function toolWebFetch({ url }, maxChars = CONFIG.fetchMaxChars, signal) {
-  if (!/^https?:\/\//i.test(url)) throw new Error("Only http:// or https:// URLs are allowed");
   const timeout = AbortSignal.timeout(CONFIG.fetchTimeoutMs);
-  const res = await fetch(url, {
+  const res = await fetchWithPublicRedirects(url, {
     headers: { "User-Agent": "Mozilla/5.0 research-agent-tutorial" },
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    redirect: "follow",
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   const ct = res.headers.get("content-type") || "";
@@ -1408,11 +1412,14 @@ async function runSubagent(brief, ctx) {
     temp: ctx.temp,
     signal: ctx.signal,   // กด Stop → ยกเลิก sub-agent ด้วย
     onLog: ctx.onLog,     // log ของ sub-agent ยังไหลขึ้น UI เหมือนเดิม
+    trusted: ctx.trusted,
   });
   return `### SUB-AGENT REPORT\n${truncate(report, 4000)}`;
 }
 
 async function runTool(name, args, ctx) {
+  if (!ctx.trusted && (name === "run_command" || name === "tool_create" || loadSkills().some((s) => s.name === name)))
+    throw new Error("This tool is available to admins only");
   if (name === "web_fetch") return toolWebFetch(args, ctx.fetchChars, ctx.signal);
   if (name === "web_search") return toolWebSearch(args, ctx);
   if (name === "get_datetime") return toolGetDatetime();
@@ -1472,12 +1479,12 @@ async function agentLoopCore(userTask, {
   noBanner = false, temp = null, history = [], onDelta = null,
   onLog = null, signal = null, mode = "research",
   planMode = false, approvedPlan = null, onPlan = null,
-  root = null, onRun = null,
+  root = null, onRun = null, trusted = true,
 } = {}) {
   const tools2 = tools ?? getTools(mode); // โหมด code = เพิ่ม run_command/file_edit/file_grep
   const tag = depth > 0 ? `${C.dim}[sub d${depth}]${C.reset} ` : "";
   const ctx = {
-    depth, temp, tag, signal, onLog, mode,
+    depth, temp, tag, signal, onLog, mode, trusted,
     // logger ของ agent: พิมพ์ลง terminal เหมือนเดิม + ส่งไป UI ถ้ามี onLog
     // (เลิก patch console.log แบบ global แล้ว — request ซ้อนกันจะชนกัน)
     log: (color, ...a) => {
@@ -1501,9 +1508,9 @@ async function agentLoopCore(userTask, {
 
   // system prompt: ผนวกวันที่ + memory keys + playbook เฉพาะ orchestrator (sub-agent ตัดของฟุ่มเฟือย)
   let system = SYSTEM_PROMPT;
-  if (mode === "code" && depth === 0) system += CODE_RULES;
-  if (depth === 0) system += TOOL_RULES; // Circuit 2 — สอนการสร้าง tool ให้เอง (ทุกโหมด, orchestrator เท่านั้น)
-  if (depth === 0) system += SPARK_RULES; // ตัวกระตุ้น 3 วงจร — identity ของ compounding agent (ทุกโหมด, orchestrator เท่านั้น)
+  if (mode === "code" && depth === 0) system += trusted ? CODE_RULES : MEMBER_CODE_RULES;
+  if (depth === 0) system += trusted ? TOOL_RULES : "\n== CUSTOM TOOL ACCESS ==\nCustom tools can only be created or run by admins.\n";
+  if (depth === 0) system += trusted ? SPARK_RULES : SPARK_RULES.replace("build it once with tool_create instead of improvising every time.", "custom tools are admin-only; ask an admin to create a recurring tool.");
   if (depth === 0) {
     system += `\n\nCurrent date: ${new Date().toISOString().slice(0, 10)}.`;
     const keys = loadMemory().map((m) => m.key);

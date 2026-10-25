@@ -5,192 +5,474 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Research Agent</title>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body { margin:0; background:#0a0c10; color:#dbe2ea; font-family:'Segoe UI',system-ui,sans-serif; display:flex; }
-
-  /* ---------- Sidebar (sessions) ---------- */
-  #side { width:236px; min-width:236px; background:#0f1216; border-right:1px solid #1d232b;
-          display:flex; flex-direction:column; height:100vh; }
-  #side h1 { font-size:15px; margin:14px 14px 10px; letter-spacing:.3px; }
-  #newChat { margin:0 14px 8px; padding:9px; border-radius:8px; border:1px solid #2b333d;
-             background:#161b22; color:#8fd0ff; cursor:pointer; font-size:13px; text-align:center; }
-  #newChat:hover { background:#1c232c; }
-  #sessSearch { margin:0 14px 8px; padding:7px 10px; border-radius:8px; border:1px solid #2b333d;
-                background:#161b22; color:#dbe2ea; font-size:12px; }
-  #sessSearch:focus { outline:none; border-color:#58a6ff; }
-  #sessList { flex:1; overflow-y:auto; padding:0 8px 10px; }
-  .sess { padding:9px 10px; border-radius:8px; cursor:pointer; margin-bottom:4px; }
-  .sess:hover { background:#161b22; }
-  .sess.active { background:#1b2937; }
+  :root { color-scheme: light; --ink:#202722; --muted:#7a847d; --line:#e4e8e4; --surface:#fff; --canvas:#f5f7f4; --accent:#176b52; --accent-soft:#e9f3ee; }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body { margin:0; background:var(--canvas); color:var(--ink); font-family:'Segoe UI',system-ui,sans-serif; display:flex; }
+  button,input,select { font:inherit; }
+  button { color:inherit; }
+  #side { width:258px; min-width:258px; background:var(--surface); border-right:1px solid var(--line); display:flex; flex-direction:column; height:100vh; }
+  #side h1 { display:flex; align-items:center; gap:10px; font-size:15px; margin:0; padding:21px 20px 18px; letter-spacing:-.2px; }
+  .brand-mark { display:grid; place-items:center; width:30px; height:30px; background:var(--accent); color:white; border-radius:9px; font-size:16px; }
+  #newChat { margin:0 14px 16px; padding:11px 13px; border-radius:10px; border:1px solid #c9ddd2; background:#edf5ef; color:#205e47; cursor:pointer; font-size:13px; text-align:center; font-weight:650; }
+  #newChat:hover { background:#e0eee5; }
+  .side-label { margin:0 18px 8px; font-size:11px; color:#969daa; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  #sessSearch { margin:0 14px 15px; padding:9px 11px; border-radius:9px; border:1px solid var(--line); background:#fafbfc; color:var(--ink); font-size:12px; }
+  #sessSearch:focus,#task:focus,.ctl:focus { outline:0; border-color:#81b29b; box-shadow:0 0 0 3px #176b521a; }
+  #sessList { flex:1; overflow-y:auto; padding:0 9px 12px; }
+  .sess { padding:10px 11px; border-radius:9px; cursor:pointer; margin-bottom:3px; }
+  .sess:hover { background:#f5f5f8; }
+  .sess.active { background:var(--accent-soft); color:#205e47; }
   .sess .row { display:flex; align-items:center; gap:6px; }
-  .sess .t { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
-  .sess .x { visibility:hidden; border:none; background:none; color:#697584; cursor:pointer; font-size:11px; padding:1px 4px; }
+  .sess .t { font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+  .sess .x { visibility:hidden; border:0; background:none; color:#9aa1ac; cursor:pointer; font-size:12px; padding:1px 4px; }
   .sess:hover .x { visibility:visible; }
-  .sess .x:hover { color:#f85149; }
-  .sess .d { font-size:11px; color:#697584; margin-top:2px; }
-  #sideFoot { padding:10px 14px; border-top:1px solid #1d232b; font-size:11px; color:#697584; }
-  #export { margin:0 14px 8px; padding:8px; border-radius:8px; border:1px dashed #2b333d;
-            background:transparent; color:#8b98a5; cursor:pointer; font-size:12px; text-align:center; }
-  #export:hover { color:#8fd0ff; border-color:#58a6ff; }
-
-  /* ---------- Main chat ---------- */
-  #main { flex:1; display:flex; flex-direction:column; height:100vh; min-width:0; }
-  #header { padding:12px 22px; border-bottom:1px solid #1d232b; display:flex; justify-content:space-between; align-items:center; gap:10px; }
-  #header .name { font-size:14px; font-weight:600; }
-  #header .sub  { font-size:12px; color:#697584; }
-  .ctl { max-width:340px; padding:7px 10px; border-radius:8px; border:1px solid #2b333d;
-         background:#161b22; color:#dbe2ea; font-size:12px; }
-  #temp { width:64px; }
-  #steps { width:64px; }
+  .sess .x:hover { color:#c94444; }
+  .sess .d { font-size:10.5px; color:#9aa1ac; margin-top:4px; }
+  #sideFoot { padding:13px 17px; border-top:1px solid var(--line); font-size:11px; color:#9097a2; }
+  #export { margin:0 14px 10px; padding:9px; border-radius:9px; border:1px solid var(--line); background:white; color:#626977; cursor:pointer; font-size:12px; }
+  #export:hover { color:var(--accent); border-color:#a9c9b7; }
+  #main { flex:1; display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr) auto; height:100vh; min-width:0; }
+  #main.project-open { grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  #header { min-height:70px; padding:11px 28px; border-bottom:1px solid var(--line); background:var(--surface); display:flex; justify-content:space-between; align-items:center; gap:14px; }
+  #header { grid-column:1 / -1; grid-row:1; }
+  #header .name { font-size:14px; font-weight:650; letter-spacing:-.2px; }
+  #header .sub { font-size:11px; color:var(--muted); margin-top:3px; }
+  #headLeft { display:flex; align-items:center; gap:13px; min-width:0; }
+  #headRight { display:flex; gap:8px; align-items:center; }
+  .view-tabs { display:flex; gap:3px; margin-left:16px; padding:3px; border-radius:9px; background:#f1f3f0; }
+  .view-tab { padding:7px 11px; border:0; border-radius:7px; background:transparent; color:#737d75; cursor:pointer; font-size:11.5px; white-space:nowrap; }
+  .view-tab.active { background:#fff; color:#205e47; box-shadow:0 1px 3px #1d30220e; font-weight:650; }
+  .ctl { max-width:340px; padding:8px 11px; border-radius:9px; border:1px solid var(--line); background:white; color:var(--ink); font-size:12px; }
+  #temp,#steps { width:70px; }
+  #sidebarToggle { display:none; width:36px; height:36px; border:1px solid var(--line); background:white; border-radius:9px; cursor:pointer; }
+  #settings { position:relative; }
+  #settings summary { list-style:none; cursor:pointer; padding:8px 11px; border:1px solid var(--line); border-radius:9px; background:#fff; color:#525968; font-size:12px; white-space:nowrap; }
+  #settings summary::-webkit-details-marker { display:none; }
+  #settings[open] .settings-pop { position:absolute; z-index:80; top:44px; right:0; width:min(350px,90vw); display:grid; gap:8px; padding:14px; background:#fff; border:1px solid var(--line); border-radius:12px; box-shadow:0 12px 35px #20242c1a; }
+  .settings-pop .group-title { color:var(--muted); font-size:11px; font-weight:700; margin:2px 0; }
+  .settings-pop .ctl { width:100%; max-width:none; }
+  .settings-tools { display:flex; flex-wrap:wrap; gap:7px; }
+  .settings-tools .ctl { width:auto; max-width:100%; cursor:pointer; }
   /* Circuit 1: playbook badge + popover โชว์กฎที่ agent เรียนรู้ */
-  .pb-badge { cursor:pointer; white-space:nowrap; user-select:none; background:#10141a; color:#7dd3fc; }
-  .pb-badge:hover { border-color:#58a6ff; }
-  .answer pre.cblk { background:#0b0f14; border:1px solid #1e252e; border-radius:8px;
-                     padding:10px 12px; margin:8px 0; overflow-x:auto; white-space:pre;
-                     font:12.5px/1.5 Consolas,monospace; color:#c9d1d9; }
-  .pb-pop { position:fixed; z-index:60; max-width:520px; max-height:60vh; overflow-y:auto;
-            background:#0d1117; border:1px solid #2b333d; border-radius:12px; padding:12px 14px;
-            font-size:12.5px; color:#dbe2ea; box-shadow:0 12px 32px rgba(0,0,0,.5); }
-  .pb-pop .h { font-weight:600; margin-bottom:8px; color:#58a6ff; }
+  .pb-badge { cursor:pointer; white-space:nowrap; user-select:none; background:#fff; color:#5e6673; }
+  .pb-badge:hover { border-color:#a9c9b7; color:var(--accent); }
+  .answer pre.cblk { background:#f4f5f8; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin:8px 0; overflow-x:auto; white-space:pre; font:12.5px/1.5 Consolas,monospace; color:#3e4550; }
+  .pb-pop { position:fixed; z-index:160; max-width:520px; max-height:70vh; overflow-y:auto; background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 16px; font-size:12.5px; color:var(--ink); box-shadow:0 14px 40px #20242c24; }
+  .pb-pop .h { font-weight:650; margin-bottom:8px; color:var(--accent); }
   .pb-pop .r { margin:4px 0; line-height:1.45; }
-  .pb-pop .r .t { color:#d29922; font-size:11px; }
-  .pb-pop .r .u { color:#8b98a5; font-size:11px; }
-  .pb-pop .r.muted { color:#8b98a5; font-style:italic; }
+  .pb-pop .r .t { color:#927000; font-size:11px; }
+  .pb-pop .r .u,.muted { color:#858d99; font-size:11px; }
+  .pb-pop .r.muted { color:#858d99; font-style:italic; }
   /* Tier 1: การ์ดแผน (plan mode) */
-  .plan-card { background:#0d1117; border:1px solid #2b333d; border-radius:12px; padding:12px 16px; margin-top:6px; font-size:13px; }
+  .plan-card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px 16px; margin-top:6px; font-size:13px; }
   .plan-card ol { margin:8px 0 0 18px; padding:0; }
   .plan-card li { margin:4px 0; line-height:1.5; }
-  .plan-card li.pd { color:#8b98a5; text-decoration:line-through; }
+  .plan-card li.pd { color:#89909d; text-decoration:line-through; }
 
-  #chat { flex:1; overflow-y:auto; padding:20px 22px 10px; max-width:980px; width:100%; margin:0 auto; }
-  .msg-user { display:flex; justify-content:flex-end; margin:14px 0; }
-  .msg-user .b { background:#1b2937; border:1px solid #24384d; padding:10px 15px;
-                 border-radius:14px 14px 3px 14px; max-width:78%; font-size:14px; line-height:1.5; white-space:pre-wrap; }
-  .msg-agent { margin:14px 0; max-width:88%; }
-  .msg-agent .name { font-size:11px; color:#697584; margin:0 0 6px 2px; letter-spacing:.4px;
+  #chat { grid-column:1; grid-row:2; flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; overflow-y:auto; padding:28px 30px 22px; max-width:1000px; width:100%; margin:0 auto; }
+  #chat[hidden],#bar[hidden] { display:none!important; }
+  .welcome-screen { width:min(790px,100%); margin:auto; padding:24px 0; }
+  .welcome-kicker { display:flex; align-items:center; gap:8px; color:var(--accent); font-size:11px; font-weight:750; letter-spacing:.1em; text-transform:uppercase; }
+  .welcome-kicker::before { content:""; width:22px; height:2px; background:var(--accent); border-radius:2px; }
+  .welcome-screen h1 { margin:14px 0 9px; max-width:650px; font-size:clamp(30px,4vw,43px); font-weight:650; letter-spacing:-1.5px; line-height:1.15; }
+  .welcome-screen .intro { color:#747e77; font-size:14px; line-height:1.7; margin:0; }
+  .starter-label { margin:19px 0 9px; font-size:11px; color:#7a847d; font-weight:700; letter-spacing:.06em; }
+  .quick-queries { display:flex; flex-wrap:wrap; gap:8px; }
+  .quick-query { padding:8px 11px; border:1px solid #e1e7e1; border-radius:999px; background:#fff; color:#59645d; font-size:11.5px; cursor:pointer; }
+  .quick-query:hover { border-color:#a9c9b7; color:var(--accent); background:#f8fbf8; }
+  .starter-foot { margin-top:15px; color:#929a94; font-size:11px; }
+  .welcome-screen #bar { border:0; background:transparent; padding:22px 0 0; }
+  .welcome-screen .compose-box { max-width:none; }
+  #bar::before { display:none; }
+  .compose-box { max-width:940px; margin:0 auto; padding:10px 12px 8px; border:1px solid #dce4dc; border-radius:15px; background:#fff; box-shadow:0 8px 26px #183a270d; }
+  #bar .in { max-width:none; gap:8px; margin:0; }
+  #bar #task { border:0; box-shadow:none; padding:12px 11px; background:transparent; }
+  #bar #task:focus { box-shadow:none; }
+  #go { min-height:42px; min-width:72px; }
+  #stop { min-height:42px; }
+  .composer-actions { display:flex; align-items:center; gap:8px; min-height:34px; padding:8px 3px 0; margin-top:5px; border-top:1px solid #f0f2ef; }
+  .composer-mode { display:inline-flex; align-items:center; gap:6px; padding:6px 9px; border:1px solid transparent; border-radius:8px; color:#68736b; font-size:11px; cursor:pointer; white-space:nowrap; }
+  .composer-mode:hover { background:#f4f7f4; }
+  .composer-mode input { accent-color:var(--accent); margin:0; }
+  #planSlot { display:inline-flex; }
+  #planSlot .ctl { padding:6px 9px; border-color:transparent; font-size:11px; }
+  .composer-spacer { flex:1; }
+  .model-wrap { display:flex; align-items:center; gap:5px; color:#8b948d; font-size:10px; }
+  #model { max-width:240px; padding:6px 8px; border:0; background:#f7f8f6; font-size:11px; }
+  .msg-user { display:flex; justify-content:flex-end; margin:18px 0; }
+  .msg-user .b { background:#eaf3ed; border:1px solid #d7e7dc; color:#263b2f; padding:11px 15px; border-radius:15px 15px 4px 15px; max-width:78%; font-size:14px; line-height:1.6; white-space:pre-wrap; }
+  .msg-agent { margin:18px 0; max-width:90%; }
+  .msg-agent .name { font-size:11px; color:#89909d; margin:0 0 7px 2px; letter-spacing:.04em;
                      display:flex; align-items:center; justify-content:space-between; }
-  .cp { border:1px solid #2b333d; background:#161b22; color:#697584; font-size:10.5px;
-        border-radius:6px; padding:2px 9px; cursor:pointer; letter-spacing:0; }
-  .cp:hover { color:#8fd0ff; border-color:#58a6ff; }
+  .cp { border:1px solid var(--line); background:#fff; color:#6e7581; font-size:10.5px; border-radius:7px; padding:4px 9px; cursor:pointer; letter-spacing:0; }
+  .cp:hover { color:var(--accent); border-color:#a9c9b7; }
 
   /* activity ตอน agent ทำงาน — แสดงเป็น chip icon + จำนวน เรียบ ๆ ไม่แยกกล่อง log */
-  .chips { display:inline-flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:12.5px;
-           color:#8b98a5; background:#10141a; border:1px solid #1e252e; border-radius:999px; padding:6px 14px; }
-  .chips b { color:#dbe2ea; font-weight:600; }
-  .chips .e { color:#f85149; }
+  .chips { display:inline-flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:12px; color:#747c89; background:#fff; border:1px solid var(--line); border-radius:999px; padding:7px 13px; }
+  .chips b { color:#343a45; font-weight:600; }
+  .chips .e { color:#b52d35; }
   .chips .spin { margin-right:6px; }
-  .chips .done { color:#3fb950; }
-  .chips .tok { color:#d29922; }
-  .spin { display:inline-block; width:11px; height:11px; border:2px solid #58a6ff; border-top-color:transparent;
+  .chips .done { color:#25854a; }
+  .chips .tok { color:#927000; }
+  .run-link { margin-top:7px; padding:5px 8px; border:1px solid var(--line); border-radius:7px; background:#fff; color:var(--accent); cursor:pointer; font-size:10px; }
+  .spin { display:inline-block; width:11px; height:11px; border:2px solid var(--accent); border-top-color:transparent;
           border-radius:50%; animation:r .8s linear infinite; }
   @keyframes r { to { transform:rotate(360deg); } }
 
   /* คำตอบ */
   .answer { font-size:14px; line-height:1.68; }
   .answer.streaming { white-space:pre-wrap; }
-  .answer h2 { font-size:16px; margin:14px 0 8px; border-bottom:1px solid #262d38; padding-bottom:5px; }
+  .answer h2 { font-size:16px; margin:14px 0 8px; border-bottom:1px solid var(--line); padding-bottom:5px; }
   .answer h3 { font-size:14.5px; margin:12px 0 6px; }
   .answer a { color:#58a6ff; }
-  .answer code { background:#1c232c; padding:1px 5px; border-radius:5px; font-size:12.5px; }
+  .answer code { background:#f0f1f5; padding:1px 5px; border-radius:5px; font-size:12.5px; }
   .answer li { margin-left:20px; margin-top:3px; }
-  .errbox { border:1px solid #5c2024; background:#1a0f10; color:#f85149; border-radius:10px;
+  .errbox { border:1px solid #f0c9c9; background:#fff5f5; color:#b52d35; border-radius:10px;
             padding:11px 14px; font-size:13px; }
 
   /* ---------- Prompt bar ---------- */
-  #bar { border-top:1px solid #1d232b; padding:13px 22px 16px; background:inherit; }
-  #bar .in { display:flex; gap:9px; max-width:980px; margin:0 auto; }
-  #task { flex:1; padding:12px 15px; border-radius:11px; border:1px solid #2b333d;
-          background:#161b22; color:#dbe2ea; font-size:14px; }
-  #task:focus { outline:none; border-color:#58a6ff; }
-  #go { padding:0 24px; border-radius:11px; border:none; background:#238636; color:#fff;
-        font-weight:600; cursor:pointer; font-size:14px; }
+  #bar { grid-column:1; grid-row:3; border-top:1px solid var(--line); padding:14px 28px 18px; background:var(--surface); }
+  #bar::before { content:'ถามหรือบอกเป้าหมายที่อยากทำ'; display:block; max-width:940px; margin:0 auto 8px; color:#778078; font-size:11px; font-weight:600; }
+  #bar .in { display:flex; gap:9px; max-width:940px; margin:0 auto; }
+  #task { flex:1; padding:14px 16px; border-radius:12px; border:1px solid #dfe5df; background:#fff; color:var(--ink); font-size:14px; box-shadow:0 3px 12px #17291d0a; }
+  #go { padding:0 23px; border-radius:10px; border:none; background:var(--accent); color:#fff; font-weight:600; cursor:pointer; font-size:13px; }
+  #go:hover:not(:disabled) { background:#105940; }
   #go:disabled { opacity:.45; cursor:wait; }
-  #stop { padding:0 18px; border-radius:11px; border:1px solid #5c2024; background:#1a0f10;
-          color:#f85149; font-weight:600; cursor:pointer; font-size:14px; }
+  #stop { padding:0 16px; border-radius:10px; border:1px solid #f0c9c9; background:#fff5f5; color:#b52d35; font-weight:600; cursor:pointer; font-size:13px; }
   #stop:disabled { opacity:.45; }
   /* v16: tree drawer + run panel */
   #treeDrawer { position:fixed; right:14px; top:78px; bottom:88px; width:min(340px,92vw);
-                background:#151a20; border:1px solid #2b333d; border-radius:12px; z-index:120;
+                background:#fff; border:1px solid var(--line); border-radius:12px; z-index:120;
                 display:flex; flex-direction:column; overflow:hidden; }
-  .td-head { display:flex; justify-content:space-between; align-items:center; padding:10px 12px;
-             border-bottom:1px solid #2b333d; font-size:13px; }
+  .td-head { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-bottom:1px solid var(--line); font-size:13px; }
   #tdBody { flex:1; overflow:auto; padding:6px; font-size:12.5px; }
-  details.runbox { border:1px solid #2b333d; border-radius:8px; padding:5px 9px; margin-top:5px;
-                   font-size:12px; background:#10141a; }
+  details.runbox { border:1px solid var(--line); border-radius:8px; padding:5px 9px; margin-top:5px; font-size:12px; background:#fafbfc; }
+  #projectView { grid-column:2; grid-row:2 / 4; min-width:0; min-height:0; display:flex; flex-direction:column; background:#f5f7f4; border-left:1px solid var(--line); }
+  #projectView[hidden] { display:none; }
+  .project-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px 18px; border-bottom:1px solid var(--line); background:#fff; }
+  .project-title { display:flex; flex-direction:column; gap:3px; min-width:0; }
+  #projectName { color:#26332b; font-size:14px; font-weight:700; line-height:1.4; }
+  #projectPath { display:block; margin-top:3px; color:#818b83; font:11px/1.45 Consolas,monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .project-head-actions { display:flex; gap:7px; flex:0 0 auto; }
+  .project-head-actions button,.project-pane button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 10px; color:#536057; cursor:pointer; font-size:11px; }
+  #closeProjectBtn { width:32px; padding:6px!important; color:#7a847d!important; font-size:17px!important; }
+  .project-head-actions button:hover,.project-pane button:hover { border-color:#a9c9b7; color:var(--accent); }
+  .project-layout { display:grid; grid-template-columns:minmax(170px,38%) minmax(0,1fr); gap:0; flex:1; min-height:0; overflow:hidden; border-top:1px solid var(--line); }
+  .project-pane { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; border:1px solid #e3e8e3; border-radius:11px; background:#fff; }
+  #filePane { border:0; border-right:1px solid #e3e8e3; border-radius:0; }
+  .project-workarea { display:grid; grid-template-rows:39px minmax(0,1fr); min-width:0; min-height:0; background:#f5f7f4; }
+  #editorPane { border:0; border-bottom:1px solid #dfe5df; border-radius:0; }
+  #runDock { border:0; border-radius:0; min-height:0; }
+  .sideview-tabs { display:flex; gap:3px; padding:8px 9px; border-bottom:1px solid #edf0ed; background:#fafbf9; }
+  .sideview-tab { display:flex; align-items:center; justify-content:space-between; gap:7px; flex:1; border:0!important; border-radius:7px!important; background:transparent!important; color:#78827a!important; padding:8px!important; cursor:pointer; font-size:11px!important; }
+  .sideview-tab.active { background:#edf4ef!important; color:#205e47!important; font-weight:650; }
+  .sidebar-body { display:flex; flex:1; min-height:0; overflow:hidden; }
+  .pane-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:11px 12px; border-bottom:1px solid #edf0ed; }
+  .pane-head strong { font-size:11.5px; }
+  .pane-caption { color:#8c958e; font-size:10px; }
+  #projectTree { flex:1; overflow:auto; padding:8px; }
+  .file-row { display:flex; align-items:center; gap:7px; width:100%; min-height:29px; padding:5px 8px; border:0!important; border-radius:6px!important; background:transparent!important; color:#515c54!important; text-align:left; font-size:11.5px!important; }
+  .file-row:hover,.file-row.selected { background:#edf4ef!important; color:#205e47!important; }
+  .file-row .file-name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .file-row .file-size { color:#a0a8a1; font:9px Consolas,monospace; }
+  .file-children { margin-left:12px; padding-left:7px; border-left:1px solid #edf0ed; }
+  .editor-head { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:43px; padding:7px 10px 7px 13px; border-bottom:1px solid #edf0ed; }
+  #editorFileName { overflow:hidden; color:#647068; font:11px Consolas,monospace; text-overflow:ellipsis; white-space:nowrap; }
+  .editor-actions { display:flex; align-items:center; gap:7px; flex:0 0 auto; }
+  #editorStatus { color:#8b948d; font-size:10px; }
+  #editorSave { background:#176b52!important; border-color:#176b52!important; color:white!important; }
+  #editorSave:disabled { opacity:.45; cursor:default; }
+  #editorEmpty { flex:1; display:grid; place-content:center; gap:7px; color:#929b94; text-align:center; font-size:12px; }
+  #codeEditor[hidden],#editorEmpty[hidden],#editorPane[hidden],#runDock[hidden],#worktreePane[hidden] { display:none!important; }
+  #editorEmpty b { color:#59645d; font-size:13px; font-weight:600; }
+  #codeEditor { flex:1; width:100%; min-height:0; resize:none; border:0; outline:0; padding:17px 18px; background:#fff; color:#26332b; font:12px/1.7 Consolas,"Cascadia Code",monospace; tab-size:2; white-space:pre; overflow:auto; }
+  #codeEditor:focus { box-shadow:inset 0 0 0 1px #b7d4c2; }
+  .editor-foot { display:flex; justify-content:space-between; gap:10px; padding:6px 11px; border-top:1px solid #edf0ed; color:#939b94; font:10px Consolas,monospace; }
+  .workspace-tabs { display:flex; align-items:stretch; gap:2px; min-width:0; overflow:auto; padding:0 9px; border-bottom:1px solid #e5e9e5; background:#fff; scrollbar-width:thin; }
+  .workspace-tab { position:relative; display:flex; align-items:center; gap:4px; min-width:128px; max-width:240px; height:38px; margin-top:0; padding:0 7px 0 10px; border:0; border-radius:0; background:transparent; color:#78827a; white-space:nowrap; transition:background .15s,color .15s; }
+  .workspace-tab:hover { background:#f6f8f6; color:#35463a; }
+  .workspace-tab.active { background:#f3f7f4; color:#203c2d; box-shadow:inset 0 -2px #167451; }
+  .tab-select { display:flex; align-items:center; gap:8px; min-width:0; flex:1; height:100%; padding:0 3px; border:0!important; background:transparent!important; color:inherit; cursor:pointer; font-size:12px; font-weight:550; text-align:left; }
+  .workspace-tab .tab-title { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .workspace-tab .tab-dirty { color:#b27a18; font-size:12px; }
+  .workspace-tab .tab-close { display:grid; place-items:center; width:22px; height:22px; flex:0 0 auto; border:0; border-radius:6px; background:transparent; color:#869087; cursor:pointer; font-size:16px; opacity:.72; }
+  .workspace-tab .tab-close:hover { background:#e5ece7; color:#26332b; opacity:1; }
+  .workspace-tab-add { flex:0 0 auto; align-self:center; margin-left:3px; padding:6px 10px; border:1px solid #e5e9e5; border-radius:7px; background:#fff; color:#59665d; cursor:pointer; font-size:11px; }
+  .workspace-tab-add:hover { border-color:#b8d1c1; background:#f4f8f5; color:#176b52; }
+  .project-picker-list { display:grid; gap:6px; max-height:min(390px,55vh); overflow:auto; margin:14px 0 4px; }
+  .project-picker-item { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:11px 12px; border:1px solid #e8ece8; border-radius:9px; background:#fff; color:#26332b; text-align:left; cursor:pointer; }
+  .project-picker-item:hover,.project-picker-item.active { border-color:#b8d1c1; background:#f3f8f4; }
+  .project-picker-item span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .project-picker-item small { color:#7b877e; font:10px Consolas,monospace; }
+  .inspector-body { flex:1; min-height:0; overflow:auto; padding:10px; }
+  #worktreePane { width:100%; }
+  .run-dock-head { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; padding:7px 13px; border-bottom:1px solid #edf0ed; background:#fafbf9; }
+  .run-dock-head strong { font-size:11.5px; }
+  .run-dock-head span { color:#8c958e; font-size:10px; }
+  #runPane { flex:1; overflow:auto; padding:8px 12px; }
+  .worktree-card,.run-card { margin-bottom:8px; padding:10px; border:1px solid #e7ebe7; border-radius:8px; background:#fff; }
+  .worktree-card.active { border-color:#a9c9b7; background:#f4f9f5; }
+  .worktree-card button { width:100%; padding:0; border:0!important; background:transparent!important; text-align:left; }
+  .worktree-name { display:block; color:#35443a; font:11px Consolas,monospace; overflow-wrap:anywhere; }
+  .worktree-branch { display:block; margin-top:4px; color:#8b948d; font-size:10px; }
+  .worktree-meta { display:flex; align-items:center; justify-content:space-between; gap:7px; margin-top:8px; }
+  .worktree-create { display:flex; gap:6px; margin-top:10px; }
+  .worktree-create input,.workspace-dialog input { min-width:0; flex:1; padding:9px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); font-size:11px; }
+  .worktree-note,.empty-note { padding:9px; color:#8a948c; font-size:10.5px; line-height:1.6; }
+  .run-card summary { cursor:pointer; color:#47534a; font-size:11px; }
+  .run-card pre { max-height:280px; overflow:auto; margin:9px 0 0; padding:10px; border-radius:7px; background:#f5f7f5; color:#303a33; font:10px/1.55 Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .run-ok { color:#26754f; } .run-fail { color:#b52d35; }
+  .workspace-dialog { position:fixed; inset:0; z-index:220; display:grid; place-items:center; padding:18px; background:#1d2c2360; backdrop-filter:blur(3px); }
+  .workspace-dialog[hidden] { display:none; }
+  .workspace-dialog-card { width:min(460px,96vw); padding:20px; border:1px solid var(--line); border-radius:14px; background:#fff; box-shadow:0 20px 60px #18251d2b; }
+  .workspace-dialog-card h3 { margin:0 0 7px; font-size:15px; }
+  .workspace-dialog-card p { margin:0 0 16px; color:#7a847d; font-size:11px; line-height:1.6; }
+  .workspace-dialog-card label { display:block; margin-bottom:6px; color:#59645d; font-size:11px; font-weight:650; }
+  .workspace-dialog-card input { width:100%; }
+  .workspace-path-row { display:flex; gap:7px; }
+  .workspace-path-row button,.directory-toolbar button { border:1px solid var(--line); border-radius:8px; padding:8px 10px; background:#fff; color:#536057; cursor:pointer; font-size:10.5px; white-space:nowrap; }
+  .directory-browser { margin-top:10px; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
+  .directory-browser[hidden] { display:none; }
+  .directory-toolbar { display:flex; align-items:center; gap:8px; padding:8px; background:#f7f8f6; border-bottom:1px solid var(--line); }
+  #directoryCurrent { min-width:0; flex:1; overflow:hidden; color:#68736b; font:10px Consolas,monospace; text-overflow:ellipsis; white-space:nowrap; }
+  #directoryList { max-height:180px; overflow:auto; padding:5px; }
+  .directory-row { display:block; width:100%; padding:7px 9px; border:0; border-radius:6px; background:white; color:#505b53; cursor:pointer; text-align:left; font-size:10.5px; }
+  .directory-row:hover { background:#edf4ef; color:var(--accent); }
+  #directoryMessage { padding:7px 9px; color:#8b948d; font-size:10px; }
+  #workspaceError { min-height:18px; margin-top:6px; color:#b52d35; font-size:10.5px; }
+  .workspace-dialog-actions { display:flex; justify-content:flex-end; gap:7px; margin-top:12px; }
+  .workspace-dialog-actions button { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:#fff; cursor:pointer; font-size:11px; }
+  #workspaceAdd { border-color:#176b52; background:#176b52; color:#fff; }
+  .account-dialog-card { width:min(660px,96vw); max-height:min(760px,92vh); display:flex; flex-direction:column; padding:0; overflow:hidden; border:1px solid var(--line); border-radius:14px; background:#fff; box-shadow:0 20px 60px #18251d2b; }
+  .account-dialog-head { display:flex; justify-content:space-between; align-items:center; padding:17px 20px; border-bottom:1px solid #edf0ed; }
+  .account-dialog-head h3 { margin:0; font-size:15px; }
+  .account-dialog-head p { margin:4px 0 0; color:#879188; font-size:11px; }
+  .account-dialog-head button { width:30px; height:30px; border:0; border-radius:8px; background:#f4f6f3; color:#647068; cursor:pointer; font-size:18px; }
+  .account-content { flex:1; min-height:0; overflow:auto; padding:18px 20px; }
+  .account-section-title { margin:4px 0 10px; color:#59645d; font-size:11px; font-weight:700; }
+  .account-form-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .account-field label { display:block; margin:0 0 5px; color:#7a847d; font-size:10px; }
+  .account-field input { width:100%; min-width:0; padding:9px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); font-size:12px; }
+  .account-action { margin-top:10px; padding:8px 11px; border:1px solid #d9e5dc; border-radius:8px; background:#f4f8f4; color:#315d46; cursor:pointer; font-size:11px; }
+  .account-action.primary { border-color:#176b52; background:#176b52; color:#fff; }
+  .account-note { margin:6px 0 0; color:#89938b; font-size:10.5px; line-height:1.55; }
+  .account-dialog-foot { display:flex; justify-content:flex-end; align-items:center; padding:12px 20px; border-top:1px solid #edf0ed; }
+  #accountError { min-height:16px; color:#b52d35; font-size:10.5px; }
+  @media(max-width:1100px) { .project-workarea { grid-template-rows:39px minmax(0,1fr); } }
+  @media(max-width:760px) { .view-tabs { margin-left:4px; } .view-tab { padding:6px 7px; font-size:10px; }
+    .project-head { align-items:flex-start; flex-direction:column; } .project-layout { display:flex; flex-direction:column; overflow:auto; }
+    #filePane { min-height:200px; max-height:34vh; flex:0 0 auto; } .project-workarea { min-height:72vh; grid-template-rows:39px minmax(380px,1fr); }
+    .account-form-grid { grid-template-columns:1fr; }
+  }
+  @media(max-width:900px) { #side { width:226px; min-width:226px; } #header { padding:10px 16px; } #header .sub { display:none; } }
+  @media(max-width:680px) {
+    #side { position:fixed; z-index:140; inset:0 auto 0 0; width:min(290px,84vw); min-width:0; transform:translateX(-102%); transition:transform .2s ease; box-shadow:none; }
+    body.sidebar-open #side { transform:translateX(0); box-shadow:12px 0 30px #20242c25; }
+    #sidebarToggle { display:block; flex:0 0 auto; }
+    #header { min-height:62px; padding:9px 12px; gap:7px; }
+    #headLeft { gap:8px; } #headRight { gap:6px; }
+    #header .name { font-size:13px; }
+    #settings summary { font-size:0; padding:8px 10px; } #settings summary::after { content:'⚙'; font-size:14px; }
+    #chat { padding:16px 14px 12px; }
+    .welcome-screen { padding:10px 0; } .welcome-screen h1 { font-size:31px; letter-spacing:-1px; }
+    .starter-label { margin-top:19px; } .quick-queries { gap:6px; } .quick-query { padding:7px 9px; font-size:10.5px; }
+    #bar { padding:10px 11px calc(12px + env(safe-area-inset-bottom)); } #bar .in { gap:6px; }
+    .welcome-screen #bar { padding:17px 0 0; } .welcome-screen #bar .in { padding:6px; }
+    #task { min-width:0; padding:12px; font-size:13px; } #go { padding:0 15px; }
+    .composer-actions { flex-wrap:wrap; gap:4px; } .composer-spacer { display:none; }
+    .model-wrap { width:100%; order:2; border-top:1px solid #f0f2ef; padding:7px 5px 0; }
+    #model { flex:1; max-width:none; }
+    .msg-user .b,.msg-agent { max-width:94%; }
+  }
 </style>
 </head>
 <body>
   <div id="side">
-    <h1>🔬 Research Agent</h1>
-    <div id="newChat">＋ New conversation</div>
-    <input id="sessSearch" placeholder="🔍 ค้นหาแชต…">
+    <h1><span class="brand-mark">✦</span><span>Research Agent</span></h1>
+    <button id="newChat">＋ เริ่มแชตใหม่</button>
+    <div class="side-label">บทสนทนา</div>
+    <input id="sessSearch" placeholder="⌕  ค้นหาแชต…">
     <div id="sessList"></div>
-    <button id="export">⬇ Export เป็น .md</button>
-    <div id="sideFoot">sessions อยู่ใน localStorage (30 อัน)</div>
+    <button id="export">↓  ส่งออกบทสนทนา</button>
+    <div id="sideFoot">บันทึกบทสนทนาไว้ในอุปกรณ์นี้</div>
   </div>
   <div id="main">
     <div id="header">
-      <div>
-        <div class="name">Research — multi-agent</div>
-        <div class="sub">streaming · memory · token thrift · tools: search / fetch / calc / files</div>
+      <div id="headLeft">
+        <button id="sidebarToggle" aria-label="เปิดรายการบทสนทนา">☰</button>
+        <div>
+          <div class="name">ผู้ช่วยค้นคว้า</div>
+          <div class="sub">ถาม ค้นคว้า และทำงานกับไฟล์ของคุณ</div>
+        </div>
+        <div class="view-tabs" role="tablist" aria-label="มุมมอง">
+          <button id="chatTab" class="view-tab active" role="tab" aria-selected="true">แชต</button>
+          <button id="projectTab" class="view-tab" role="tab" aria-selected="false">โปรเจกต์</button>
+        </div>
       </div>
-      <div style="display:flex; gap:7px; align-items:center; flex-wrap:wrap;">
-        <span id="userBadge" class="ctl pb-badge" title="บัญชีผู้ใช้ — คลิกเพื่อสลับออก/จัดการสมาชิก">👤 …</span>
-        <select id="wsSel" class="ctl" title="พื้นที่ทำงาน (workspace) ที่ agent จะทำงานด้วย"><option value="">📁 …</option></select>
-        <span id="treeBtn" class="ctl pb-badge" title="ดูโครงสร้างไฟล์ของพื้นที่ทำงาน">🗂 ไฟล์</span>
-        <span id="wtBtn" class="ctl pb-badge" title="git worktrees — พื้นที่งานขนานของ repo">🌿 …</span>
-        <span id="pbBadge" class="ctl pb-badge" title="playbook: กฎที่ agent เรียนจาก run ที่ล้มเหลว — คลิกดู">📓 …</span>
-        <span id="skBadge" class="ctl pb-badge" title="tool library: custom tools ที่ agent สร้างเอง — คลิกดู">🧱 …</span>
-        <input id="temp" class="ctl" type="number" min="0" max="2" step="0.1" value="0.7" title="temperature (ต่ำ = แม่น)">
-        <label class="ctl" style="display:flex;gap:5px;align-items:center;cursor:pointer" title="Code Mode: เปิด run_command/file_edit/file_grep + verification gate (ต้องรันของจริงก่อนบอกว่าเสร็จ)"><input id="codeMode" type="checkbox" style="accent-color:#58a6ff">💻 โค้ด</label>
-        <select id="steps" class="ctl" title="max steps / คำถาม">
-          <option>6</option><option selected>12</option><option>18</option><option>24</option>
-        </select>
-        <select id="model" class="ctl"><option value="">loading models…</option></select>
+      <div id="headRight">
+        <details id="settings">
+          <summary>เครื่องมือและตั้งค่า</summary>
+        <div class="settings-pop">
+            <div class="group-title">การตอบและการทำงาน</div>
+            <div style="display:flex;gap:8px">
+              <label style="flex:1;font-size:11px;color:#78808d">ความคิดสร้างสรรค์<input id="temp" class="ctl" type="number" min="0" max="2" step="0.1" value="0.7" title="ความคิดสร้างสรรค์; ค่าต่ำจะตอบตรงขึ้น" style="display:block;margin-top:4px"></label>
+              <label style="flex:1;font-size:11px;color:#78808d">จำนวนขั้นสูงสุด<select id="steps" class="ctl" style="display:block;margin-top:4px"><option>6</option><option selected>12</option><option>18</option><option>24</option></select></label>
+            </div>
+            <div class="group-title">ความรู้และเครื่องมือของ agent</div>
+            <div class="settings-tools">
+              <span id="pbBadge" class="ctl pb-badge" title="กฎที่ agent เรียนรู้">📓 กฎที่เรียนรู้</span>
+              <span id="skBadge" class="ctl pb-badge" title="เครื่องมือที่ agent สร้าง">🧱 เครื่องมือ</span>
+            </div>
+          </div>
+        </details>
+        <button id="userBadge" class="ctl pb-badge" title="โปรไฟล์ผู้ใช้">👤 โปรไฟล์</button>
       </div>
     </div>
     <div id="chat"></div>
     <div id="bar">
-      <div class="in">
-        <input id="task" placeholder="ส่งงานวิจัยให้ agent … (Enter เพื่อส่ง)" autofocus>
-        <button id="stop" hidden>⏹ Stop</button>
-        <button id="go">Send</button>
+      <div class="compose-box">
+        <div class="in">
+          <input id="task" placeholder="ส่งงานวิจัยให้ agent … (Enter เพื่อส่ง)" autofocus>
+          <button id="stop" hidden>⏹ หยุด</button>
+          <button id="go">ส่ง</button>
+        </div>
+        <div class="composer-actions">
+          <label id="codeModeLabel" class="composer-mode"><input id="codeMode" type="checkbox"> เขียนโค้ด</label>
+          <span id="planSlot"></span>
+          <span class="composer-spacer"></span>
+          <label class="model-wrap">โมเดล<select id="model" class="ctl"><option value="">กำลังโหลดโมเดล…</option></select></label>
+        </div>
       </div>
     </div>
+    <section id="projectView" hidden>
+      <div class="project-head">
+        <div class="project-title"><strong id="projectName">ยังไม่ได้เลือกโปรเจกต์</strong><span id="projectPath">เพิ่มโฟลเดอร์โปรเจกต์เพื่อเริ่มใช้งาน</span></div>
+        <div class="project-head-actions"><button id="projectPickerBtn">▦ เปลี่ยนโปรเจกต์</button><button id="addWorkspaceBtn">＋ เพิ่มโฟลเดอร์</button><button id="refreshProjectBtn">↻ รีเฟรช</button><button id="closeProjectBtn" aria-label="ปิดโปรเจกต์" title="ปิดแผงโปรเจกต์">×</button></div>
+      </div>
+      <div class="project-layout">
+        <aside id="filePane" class="project-pane">
+          <div class="sideview-tabs" role="tablist" aria-label="แถบโปรเจกต์">
+            <button class="sideview-tab active" data-sidebar="files">ไฟล์ <span id="fileCount" class="pane-caption">—</span></button>
+            <button class="sideview-tab" data-sidebar="worktrees">Worktrees</button>
+          </div>
+          <div class="sidebar-body">
+            <div id="projectTree"></div>
+            <div id="worktreePane" class="inspector-body" hidden></div>
+          </div>
+        </aside>
+        <div class="project-workarea">
+          <div id="workspaceTabs" class="workspace-tabs" role="tablist" aria-label="ไฟล์และผลรัน"></div>
+          <section id="editorPane" class="project-pane">
+            <div class="editor-head"><span id="editorFileName">ยังไม่ได้เลือกไฟล์</span><div class="editor-actions"><span id="editorStatus">พร้อม</span><button id="editorSave" disabled>บันทึก</button></div></div>
+            <div id="editorEmpty"><b>เลือกไฟล์เพื่อเริ่มแก้ไข</b><span>เลือกไฟล์จากรายการด้านซ้าย</span></div>
+            <textarea id="codeEditor" hidden spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+            <div class="editor-foot"><span id="editorPosition">บรรทัด 1 · คอลัมน์ 1</span><span id="editorEncoding">UTF-8</span></div>
+          </section>
+          <section id="runDock" class="project-pane" hidden>
+            <div class="run-dock-head"><strong>ผลการรัน</strong><span>คำสั่งจากแชตนี้</span></div>
+            <div id="runPane"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div id="workspaceDialog" class="workspace-dialog" hidden>
+    <div class="workspace-dialog-card">
+      <h3>เพิ่มโฟลเดอร์โปรเจกต์</h3>
+      <p>ระบุที่อยู่โฟลเดอร์บนเครื่องนี้ เช่น <code>D:\Github\my-project</code> ระบบจะตรวจสอบโฟลเดอร์ก่อนเพิ่ม</p>
+      <label for="workspaceDir">ที่อยู่โฟลเดอร์</label>
+      <div class="workspace-path-row"><input id="workspaceDir" class="ctl" placeholder="D:\Github\ชื่อโปรเจกต์" autocomplete="off"><button id="directoryBrowseToggle">เลือกโฟลเดอร์</button></div>
+      <div id="directoryBrowser" class="directory-browser" hidden>
+        <div class="directory-toolbar"><button id="directoryUp">↑ ขึ้น</button><span id="directoryCurrent"></span><button id="directoryUse">ใช้โฟลเดอร์นี้</button></div>
+        <div id="directoryList"></div><div id="directoryMessage"></div>
+      </div>
+      <div id="workspaceError"></div>
+      <div class="workspace-dialog-actions"><button id="workspaceCancel">ยกเลิก</button><button id="workspaceAdd">เพิ่มโปรเจกต์</button></div>
+    </div>
+  </div>
+  <div id="projectPickerDialog" class="workspace-dialog" hidden>
+    <section class="workspace-dialog-card" role="dialog" aria-modal="true" aria-labelledby="projectPickerTitle">
+      <h3 id="projectPickerTitle">เลือกโปรเจกต์</h3>
+      <p>เลือกโฟลเดอร์ที่จะใช้กับรายการไฟล์ ตัวแก้ไข และการทำงานในแชต</p>
+      <div id="projectPickerList" class="project-picker-list"></div>
+      <div class="workspace-dialog-actions"><button id="projectPickerClose">ปิด</button><button id="projectPickerAdd">＋ เพิ่มโฟลเดอร์</button></div>
+    </section>
+  </div>
+  <div id="accountDialog" class="workspace-dialog" hidden>
+    <section class="account-dialog-card" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
+      <header class="account-dialog-head"><div><h3 id="accountTitle">โปรไฟล์ผู้ใช้</h3><p id="accountSubtitle">ข้อมูลบัญชีและการเข้าสู่ระบบ</p></div><button id="accountClose" aria-label="ปิด">×</button></header>
+      <div class="account-content">
+        <section id="profilePanel">
+          <div class="account-section-title">ข้อมูลโปรไฟล์</div>
+          <div class="account-form-grid">
+            <div class="account-field"><label for="profileName">ชื่อที่แสดง</label><input id="profileName" autocomplete="name"></div>
+            <div class="account-field"><label for="profileEmail">อีเมล</label><input id="profileEmail" autocomplete="email"></div>
+          </div>
+          <button id="profileSave" class="account-action">บันทึกโปรไฟล์</button>
+          <div class="account-section-title" style="margin-top:20px">รหัสผ่าน</div>
+          <div class="account-form-grid">
+            <div class="account-field"><label for="passwordOld">รหัสผ่านเดิม</label><input id="passwordOld" type="password" autocomplete="current-password"></div>
+            <div class="account-field"><label for="passwordNew">รหัสผ่านใหม่</label><input id="passwordNew" type="password" autocomplete="new-password" placeholder="อย่างน้อย 6 ตัวอักษร"></div>
+          </div>
+          <button id="passwordSave" class="account-action">เปลี่ยนรหัสผ่าน</button>
+          <div class="account-section-title" style="margin-top:20px">OpenRouter key ส่วนตัว</div>
+          <div id="keyStatus" class="account-note"></div>
+          <div class="account-field" style="margin-top:8px"><label for="keyInput">ใส่ key ใหม่เพื่อเปลี่ยน</label><input id="keyInput" type="password" autocomplete="new-password" placeholder="sk-or-v1-…"></div>
+          <button id="keySave" class="account-action">บันทึก key</button>
+        </section>
+        <div id="accountError"></div>
+      </div>
+      <footer class="account-dialog-foot"><button id="logoutButton" class="account-action">ออกจากระบบ</button></footer>
+    </section>
   </div>
 
 <script>
 /* ================= state + sessions (like OpenCode) ================= */
 const $ = (id) => document.getElementById(id);
-const chat = $("chat"), go = $("go"), modelSel = $("model");
+const chat = $("chat"), go = $("go"), modelSel = $("model"), main = $("main"), promptBar = $("bar");
 
-/* ================= v16: auth (setup/login) — บังคับก่อนดูอะไร ---------------- */
+/* ================= v17: auth (setup/login/register) — บังคับก่อนดูอะไร ---------------- */
 (async () => {
   let me = null;
   try { me = await (await fetch("/api/me")).json(); } catch { return; } // server ตาย → ปล่อยหน้าปกติ
   if (me.user) { refreshUser(me.user); return; } // login อยู่แล้ว
   const ov = document.createElement("div");
-  ov.style.cssText = "position:fixed;inset:0;background:#0b0e12f2;z-index:200;display:flex;align-items:center;justify-content:center";
-  const setup = !!me.setup;
+  ov.style.cssText = "position:fixed;inset:0;background:#20242c66;backdrop-filter:blur(4px);z-index:200;display:flex;align-items:center;justify-content:center;padding:18px";
+  let mode = me.setup ? "setup" : "login"; // setup → login | register สลับได้ (ยกเว้น setup ติดไว้)
   ov.innerHTML =
-    '<div style="background:#151a20;border:1px solid #2b333d;border-radius:14px;padding:28px;width:min(360px,92vw)">' +
-    '<div class="name" style="margin-bottom:4px">' + (setup ? "🔐 สร้างบัญชีเจ้าของ (ครั้งแรก)" : "🔐 เข้าสู่ระบบ") + '</div>' +
-    '<div class="sub" style="margin-bottom:14px">' + (setup ? "บัญชีแรก = admin ทำทุกอย่างได้" : "ระบบสมาชิกเปิดใช้อยู่") + '</div>' +
+    '<div style="background:#fff;border:1px solid #e7e9ee;border-radius:16px;padding:28px;width:min(380px,92vw);box-shadow:0 24px 70px #20242c30">' +
+    '<div class="name" style="margin-bottom:4px" id="auTitle"></div>' +
+    '<div class="sub" style="margin-bottom:14px" id="auSub"></div>' +
     '<input id="auName" class="ctl" style="width:100%;margin-bottom:8px" placeholder="ชื่อผู้ใช้" autocomplete="username">' +
-    (setup ? "" : '<input id="auPass" class="ctl" style="width:100%;margin-bottom:8px" type="password" placeholder="รหัสผ่าน" autocomplete="current-password">') +
-    (setup ? '<input id="auPass" class="ctl" style="width:100%;margin-bottom:8px" type="password" placeholder="รหัสผ่าน (6 ตัวขึ้นไป)" autocomplete="new-password">' : '') +
+    '<input id="auEmail" class="ctl" style="width:100%;margin-bottom:8px;display:none" placeholder="อีเมล" autocomplete="email">' +
+    '<input id="auPass" class="ctl" style="width:100%;margin-bottom:8px;display:none" type="password" autocomplete="current-password">' +
     '<div id="auErr" style="color:#ff6b6b;font-size:12px;min-height:16px"></div>' +
-    '<button id="auGo" class="cp" style="width:100%;padding:10px;background:#58a6ff;color:#0b0e12;border-radius:8px;border:0;font-weight:700;cursor:pointer">' +
-    (setup ? "เริ่มใช้งาน" : "เข้าสู่ระบบ") + '</button></div>';
+    '<button id="auGo" class="cp" style="width:100%;padding:11px;background:#176b52;color:#fff;border-radius:9px;border:0;font-weight:650;cursor:pointer"></button>' +
+    '<div style="text-align:center;margin-top:12px;font-size:12.5px"><a href="#" id="auSwap" style="color:#176b52"></a></div></div>';
   document.body.appendChild(ov);
+  const paint = () => {
+    const t = { setup: ["🔐 สร้างบัญชีเจ้าของ (ครั้งแรก)", "บัญชีแรกเป็นเจ้าของระบบและจัดการได้ทุกอย่าง", "เริ่มใช้งาน"],
+                login: ["🔐 เข้าสู่ระบบ", "ระบบสมาชิกเปิดใช้อยู่", "เข้าสู่ระบบ"],
+                register: ["📝 สมัครสมาชิกใหม่", "สมัครเองได้เลย — ตั้งต้นเป็นสมาชิก", "สมัครสมาชิก"] }[mode];
+    ov.querySelector("#auTitle").textContent = t[0];
+    ov.querySelector("#auSub").textContent = t[1];
+    ov.querySelector("#auGo").textContent = t[2];
+    ov.querySelector("#auEmail").style.display = mode === "register" ? "block" : "none";
+    ov.querySelector("#auPass").style.display = mode === "setup" || mode === "register" ? "block" : mode === "login" ? "block" : "none";
+    ov.querySelector("#auPass").placeholder = mode === "login" ? "รหัสผ่าน" : "รหัสผ่าน (อย่างน้อย 6 ตัว)";
+    ov.querySelector("#auSwap").textContent = mode === "login" ? "ยังไม่มีบัญชี? สมัครสมาชิก" : "มีบัญชีแล้ว? เข้าสู่ระบบ";
+    ov.querySelector("#auErr").textContent = "";
+  };
+  paint();
+  ov.querySelector("#auSwap").onclick = (e) => { e.preventDefault(); mode = mode === "login" ? "register" : "login"; paint(); };
   const go = async () => {
     try {
-      const r = await fetch(setup ? "/api/setup" : "/api/login", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: ov.querySelector("#auName").value, password: ov.querySelector("#auPass").value }),
-      });
+      const url = mode === "login" ? "/api/login" : mode === "register" ? "/api/register" : "/api/setup";
+      const body = mode === "register"
+        ? { name: ov.querySelector("#auName").value, email: ov.querySelector("#auEmail").value, password: ov.querySelector("#auPass").value }
+        : { name: ov.querySelector("#auName").value, password: ov.querySelector("#auPass").value };
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const j = await r.json();
       if (!r.ok) { ov.querySelector("#auErr").textContent = j.error || "ล้มเหลว"; return; }
       location.reload();
@@ -198,13 +480,14 @@ const chat = $("chat"), go = $("go"), modelSel = $("model");
   };
   ov.querySelector("#auGo").onclick = go;
   ov.querySelectorAll("input").forEach((i) => i.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }));
-  ov.querySelector(setup ? "#auName" : "#auPass").focus();
+  ov.querySelector("#auName").focus();
 })();
 async function refreshUser(u) {
   const b = $("userBadge");
   if (!b) return;
-  b.textContent = "👤 " + u.name;
-  b.dataset.role = u.role;
+  b.textContent = "👤 โปรไฟล์";
+  b.title = "โปรไฟล์ผู้ใช้";
+  b.dataset.name = u.name;
 }
 
 
@@ -213,12 +496,18 @@ let activeId = sessions[0] ? sessions[0].id : null;
 let running = false;
 let aborter = null;
 
-function loadSessions() { try { return JSON.parse(localStorage.getItem("ra_sessions") || "[]") || []; } catch { return []; } }
+function loadSessions() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("ra_sessions") || "[]") || [];
+    for (const s of saved) if (s.title === "New conversation") s.title = "แชตใหม่";
+    return saved;
+  } catch { return []; }
+}
 function saveSessions() { try { localStorage.setItem("ra_sessions", JSON.stringify(sessions.slice(0, 30))); } catch {} }
 function active() { return sessions.find((s) => s.id === activeId); }
 
 function newSession() {
-  const s = { id: "s" + Date.now(), title: "New conversation", ts: Date.now(), entries: [] };
+  const s = { id: "s" + Date.now(), title: "แชตใหม่", ts: Date.now(), entries: [] };
   sessions.unshift(s);
   activeId = s.id;
   saveSessions(); renderSidebar(); renderChat();
@@ -355,15 +644,11 @@ function entryNode(e) {
     if (c.tok) parts.push('<span class="tok">⛁ <b>' + c.tok.toLocaleString() + '</b> tok</span>');
     if (c.errs) parts.push('<span class="e">⚠ <b>' + c.errs + '</b> errors</span>');
     const d = document.createElement("div"); d.className = "msg-agent";
-    let runsHtml = "";
-    if (e.runs && e.runs.length) { // v16: แผงรันคำสั่งจริง (ทุก run_command ของรอบนี้)
-      runsHtml = '<div style="margin-top:6px">' + e.runs.map((r) =>
-        '<details class="runbox"><summary style="cursor:pointer">' + (r.code === 0 ? "✅" : "❌") +
-        ' 🧪 <code>' + esc(String(r.cmd || "").slice(0, 60)) + '</code> <span class="tok">exit ' + r.code + ' · ' + (r.ms || 0) + 'ms</span></summary>' +
-        '<pre class="cblk" style="max-height:220px;overflow:auto">' + esc(r.text || "(no output)") + '</pre></details>'
-      ).join("") + '</div>';
-    }
+    const runsHtml = e.runs && e.runs.length
+      ? '<button class="run-link">🧪 ดูผลการรัน ' + e.runs.length + ' คำสั่ง</button>' : "";
     d.innerHTML = '<div class="chips">' + parts.join('<span style="opacity:.4">·</span>') + '</div>' + runsHtml;
+    const runLink = d.querySelector(".run-link");
+    if (runLink) runLink.onclick = () => showProjectView("runs");
     return d;
   }
   if (e.type === "answer") {
@@ -392,11 +677,31 @@ function entryNode(e) {
 function renderChat() {
   chat.innerHTML = "";
   const s = active();
-  if (s) for (const e of s.entries) chat.appendChild(entryNode(e));
+  if (s && s.entries.length) {
+    main.appendChild(promptBar);
+    for (const e of s.entries) chat.appendChild(entryNode(e));
+  } else {
+    const welcome = document.createElement("section");
+    welcome.className = "welcome-screen";
+    welcome.innerHTML = '<div class="welcome-kicker">พื้นที่ค้นคว้า</div>' +
+      '<h1>ค้นคว้าเรื่องอะไรอยู่?</h1>' +
+      '<p class="intro">ถามคำถาม เลือกโหมดทำงาน แล้วดูคำตอบพร้อมที่มาของข้อมูล</p>' +
+      '<div class="starter-label">ตัวอย่างคำถาม</div>' +
+      '<div class="quick-queries">' +
+        '<button class="quick-query" data-prompt="ค้นคว้าข้อมูลเกี่ยวกับ … จากแหล่งที่เชื่อถือได้ สรุปประเด็นสำคัญพร้อมแหล่งอ้างอิง">ค้นคว้าพร้อมแหล่งอ้างอิง</button>' +
+        '<button class="quick-query" data-prompt="ช่วยสรุปข้อมูลต่อไปนี้ให้เข้าใจง่าย แยกเป็นประเด็นสำคัญ: …">สรุปประเด็นสำคัญ</button>' +
+        '<button class="quick-query" data-prompt="เปรียบเทียบ … กับ … โดยสรุปจุดเหมือน จุดต่าง ข้อดี และข้อจำกัด">เปรียบเทียบตัวเลือก</button>' +
+      '</div><div class="starter-foot">คำตอบจากการค้นคว้าจะแสดงแหล่งข้อมูลไว้ในบทสนทนา</div>';
+    welcome.querySelectorAll("[data-prompt]").forEach((card) => {
+      card.onclick = () => { $("task").value = card.dataset.prompt; $("task").focus(); };
+    });
+    welcome.appendChild(promptBar);
+    chat.appendChild(welcome);
+  }
   chat.scrollTop = 1e9;
 }
 // แค่ append entry ล่าสุด ไม่ re-render ทั้งความ (กันดีด UI ระหว่าง log/delta ไหล)
-function appendEntry(e) { const s = active(); if (!s) return; e.n = s.entries.length; s.entries.push(e); const node = entryNode(e); node._eid = e.n; chat.appendChild(node); chat.scrollTop = 1e9; }
+function appendEntry(e) { const s = active(); if (!s) return; if (chat.querySelector(".welcome-screen")) { main.appendChild(promptBar); chat.querySelector(".welcome-screen").remove(); } e.n = s.entries.length; s.entries.push(e); const node = entryNode(e); node._eid = e.n; chat.appendChild(node); chat.scrollTop = 1e9; }
 // re-render entry เดียว (ใช้ทั้ง activity และ answer streaming)
 function updateEntry(e) {
   const node = entryNode(e);
@@ -526,10 +831,12 @@ refreshEv();
 
 /* ================= Tier 1: 📋 plan toggle · ⛁ ctx badge · 📝 AGENTS.md · 🔒 checkpoints ================= */
 let planOn = false;
-const planBtn = document.createElement("span");
-planBtn.className = "ctl pb-badge";
+const planBtn = document.createElement("button");
+planBtn.type = "button";
+planBtn.className = "composer-mode";
 planBtn.title = "โหมดวางแผน: agent เสนอแผนก่อน → คุณกดอนุมัติในแชต → agent ลงมือตามแผน";
 planBtn.textContent = "📋 แผน: ปิด";
+planBtn.className = "ctl pb-badge";
 planBtn.onclick = () => { planOn = !planOn; planBtn.textContent = planOn ? "📋 แผน: เปิด" : "📋 แผน: ปิด"; };
 
 const ctxBadge = document.createElement("span");
@@ -645,203 +952,592 @@ async function refreshCk() {
 }
 refreshCk();
 
-evBadge.after(planBtn, ctxBadge, agBadge, ckBadge);
+evBadge.after(ctxBadge, agBadge, ckBadge);
+$("planSlot").appendChild(planBtn);
 
-/* ================= v16: workspaces (พื้นที่ทำงาน) ================= */
-const wsSel = $("wsSel");
+/* ================= Project Workspace ================= */
+const projectView = $("projectView");
 let curWs = localStorage.getItem("agent-ws") || "";
-async function refreshWs() {
-  try {
-    const { workspaces } = await (await fetch("/api/workspaces")).json();
-    wsSel.innerHTML = "";
-    for (const w of workspaces) {
-      const o = document.createElement("option");
-      o.value = w.id; o.textContent = "📁 " + w.name;
-      if (curWs === w.id) o.selected = true;
-      wsSel.appendChild(o);
-    }
-    if (!Array.from(wsSel.options).some((o) => o.selected)) { wsSel.selectedIndex = 0; curWs = wsSel.value; }
-    localStorage.setItem("agent-ws", wsSel.value);
-  } catch { wsSel.options[0].textContent = "📁 ?"; }
-}
-wsSel.onchange = () => { curWs = wsSel.value; localStorage.setItem("agent-ws", curWs); renderTree(); refreshWt(); };
-refreshWs();
+let projectWorkspaces = [], editorPath = "", editorOriginal = "", openEditorTabs = [], activeWorkspaceTab = "", runsTabOpen = true;
+const RUNS_TAB = "__runs__";
+const samePath = (a, b) => String(a || "").replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase() === String(b || "").replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase();
+const activeWorkspace = () => projectWorkspaces.find((w) => w.id === curWs) || null;
 
-/* ================= v16: tree drawer (สำรวจโครงสร้างไฟล์) ================= */
-const treeBtn = $("treeBtn");
-const drawer = document.createElement("div");
-drawer.id = "treeDrawer";
-drawer.innerHTML = '<div class="td-head"><b>🗂 โครงสร้างไฟล์</b><button id="tdClose" class="ctl" style="cursor:pointer">✕</button></div><div id="tdBody"></div>';
-drawer.querySelector("#tdClose").onclick = () => drawer.remove();
-function treeQ(extra) {
-  const p = new URLSearchParams();
-  p.set("ws", curWs);
-  if (extra) for (const k in extra) p.set(k, extra[k]);
-  return p.toString();
+async function refreshWs(preferredId) {
+  const response = await fetch("/api/workspaces");
+  if (!response.ok) throw new Error("โหลดรายการโปรเจกต์ไม่สำเร็จ");
+  const data = await response.json();
+  projectWorkspaces = data.workspaces || [];
+  const wanted = preferredId || curWs;
+  curWs = projectWorkspaces.some((w) => w.id === wanted) ? wanted : (projectWorkspaces[0]?.id || "");
+  localStorage.setItem("agent-ws", curWs);
+  updateProjectHeading();
+  renderProjectPicker();
+  return projectWorkspaces;
 }
-function treeRow(item, rel) {
-  const full = rel ? rel + "/" + item.n : item.n;
-  const row = document.createElement("div");
-  row.style.cssText = "padding:3px 6px;cursor:pointer;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
-  row.onmouseenter = () => (row.style.background = "#20262e");
-  row.onmouseleave = () => (row.style.background = "");
-  if (item.d) {
-    row.textContent = "📁 " + item.n;
-    row.dataset.open = "0";
-    row.onclick = async () => {
-      if (row.dataset.open === "1") { // toggle: ปิดลูกทั้งหมดที่เพิ่งโหลด
-        row.dataset.open = "0";
-        let s = row.nextSibling;
-        while (s && s.dataset && s.dataset.parent === full) { const nx = s.nextSibling; s.remove(); s = nx; }
-        row.textContent = "📁 " + item.n;
-        return;
-      }
-      row.dataset.open = "1";
-      row.textContent = "📂 " + item.n;
-      try {
-        const { items } = await (await fetch("/api/tree?" + treeQ({ path: full }))).json();
-        let anchor = row;
-        for (const it of items) {
-          const ch = treeRow(it, full);
-          ch.dataset.parent = full;
-          ch.style.paddingLeft = "18px";
-          anchor.after(ch); anchor = ch;
-        }
-      } catch (e) { row.textContent = "📁 " + item.n + " (error)"; }
-    };
-  } else {
-    row.innerHTML = "📄 " + esc(item.n) + (item.s != null ? ' <span style="opacity:.45;font-size:11px">' + (item.s > 1024 ? Math.round(item.s / 1024) + "k" : item.s) + 'b</span>' : "");
-    row.onclick = async () => { // preview ไฟล์ (เปิด modal เดิมที่ใช้ diff)
-      try {
-        const { content } = await (await fetch("/api/file?" + treeQ({ path: full }))).json();
-        const m = document.createElement("div");
-        m.style.cssText = "position:fixed;inset:0;background:#0008;z-index:150;display:flex;align-items:center;justify-content:center";
-        m.innerHTML = '<div style="background:#151a20;border:1px solid #2b333d;border-radius:12px;width:min(720px,94vw);max-height:80vh;display:flex;flex-direction:column">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px"><b>📄 ' + esc(full) + '</b><button class="ctl" style="cursor:pointer">✕</button></div>' +
-          '<pre class="cblk" style="margin:0;padding:0 14px 14px;overflow:auto">' + esc(content) + '</pre></div>';
-        m.querySelector("button").onclick = () => m.remove();
-        m.onclick = (ev) => { if (ev.target === m) m.remove(); };
-        document.body.appendChild(m);
-      } catch (e) { alert("อ่านไฟล์ไม่ได้: " + e.message); }
-    };
+
+function updateProjectHeading() {
+  const ws = activeWorkspace();
+  $("projectName").textContent = ws ? ws.name : "ยังไม่ได้เลือกโปรเจกต์";
+  $("projectPath").textContent = ws ? ws.dir : "เพิ่มโฟลเดอร์โปรเจกต์เพื่อเริ่มใช้งาน";
+  $("projectPath").title = ws ? ws.dir : "";
+}
+
+function clearEditor() {
+  openEditorTabs = [];
+  activeWorkspaceTab = "";
+  runsTabOpen = true;
+  editorPath = "";
+  editorOriginal = "";
+  $("editorFileName").textContent = "ยังไม่ได้เลือกไฟล์";
+  $("editorStatus").textContent = "พร้อม";
+  $("editorEmpty").hidden = false;
+  $("codeEditor").hidden = true;
+  $("codeEditor").value = "";
+  $("editorSave").disabled = true;
+  updateEditorPosition();
+  renderWorkspaceTabs();
+  showWorkspaceTabContent();
+}
+
+async function onWorkspaceChange() {
+  localStorage.setItem("agent-ws", curWs);
+  updateProjectHeading();
+  clearEditor();
+  await Promise.all([renderProjectFiles(), renderWorktrees()]);
+}
+
+function switchProjectPanel(name) {
+  if (name === "runs") {
+    for (const button of document.querySelectorAll(".sideview-tab")) button.classList.toggle("active", button.dataset.sidebar === "files");
+    $("projectTree").hidden = false;
+    $("worktreePane").hidden = true;
+    openRunsTab(true);
+    return;
   }
-  return row;
+  const showWorktrees = name === "worktrees";
+  for (const button of document.querySelectorAll(".sideview-tab")) button.classList.toggle("active", button.dataset.sidebar === (showWorktrees ? "worktrees" : "files"));
+  $("projectTree").hidden = showWorktrees;
+  $("worktreePane").hidden = !showWorktrees;
+  renderRunResults();
+  if (showWorktrees) renderWorktrees();
 }
-async function renderTree() {
-  const body = drawer.querySelector("#tdBody");
-  body.innerHTML = "loading…";
-  try {
-    const { items } = await (await fetch("/api/tree?" + treeQ())).json();
-    body.innerHTML = "";
-    for (const it of items) body.appendChild(treeRow(it, ""));
-  } catch (e) { body.innerHTML = '<div style="padding:8px;color:#ff6b6b">' + esc(e.message) + '</div>'; }
-}
-treeBtn.onclick = () => { document.body.appendChild(drawer); renderTree(); };
 
-/* ================= v16: git worktrees badge ================= */
-const wtBtn = $("wtBtn");
-let wtPop = null;
-function closeWt() { if (wtPop) { wtPop.remove(); wtPop = null; document.removeEventListener("click", closeWt); } }
-wtBtn.onclick = async () => {
-  if (wtPop) return closeWt();
+async function showProjectView(panel = "files") {
+  $("chatTab").classList.remove("active");
+  $("chatTab").setAttribute("aria-selected", "false");
+  $("projectTab").classList.add("active");
+  $("projectTab").setAttribute("aria-selected", "true");
+  chat.hidden = false;
+  promptBar.hidden = false;
+  main.classList.add("project-open");
+  projectView.hidden = false;
+  if (!projectWorkspaces.length) await refreshWs();
+  updateProjectHeading();
+  switchProjectPanel(panel);
+  await renderProjectFiles();
+}
+
+function showChatView() {
+  $("projectTab").classList.remove("active");
+  $("projectTab").setAttribute("aria-selected", "false");
+  $("chatTab").classList.add("active");
+  $("chatTab").setAttribute("aria-selected", "true");
+  main.classList.remove("project-open");
+  projectView.hidden = true;
+  chat.hidden = false;
+  promptBar.hidden = false;
+}
+
+$("chatTab").onclick = showChatView;
+$("projectTab").onclick = () => projectView.hidden ? showProjectView() : showChatView();
+$("closeProjectBtn").onclick = showChatView;
+$("refreshProjectBtn").onclick = async () => {
+  await refreshWs(curWs);
+  await Promise.all([renderProjectFiles(), renderWorktrees()]);
+  renderRunResults();
+};
+
+async function renderProjectFiles() {
+  const tree = $("projectTree");
+  tree.innerHTML = "";
+  $("fileCount").textContent = "กำลังโหลด…";
+  if (!curWs) {
+    tree.innerHTML = '<div class="empty-note">ยังไม่มีโฟลเดอร์โปรเจกต์</div>';
+    $("fileCount").textContent = "0";
+    return;
+  }
+  const root = document.createElement("div");
+  tree.appendChild(root);
   try {
-    const { worktrees, error } = await (await fetch("/api/worktrees?" + treeQ())).json();
-    if (error) { wtBtn.textContent = "🌿 ไม่ใช่ git"; wtBtn.title = error; return; }
-    let createdName = "";
-    wtPop = document.createElement("div");
-    wtPop.className = "pb-pop";
-    wtPop.innerHTML =
-      '<div class="h">🌿 git worktrees (' + worktrees.length + ')</div>' +
-      '<div class="r muted">พื้นที่งานขนานของ repo — แต่ละ worktree = โฟลเดอร์แยก + กิ่งของตัวเอง</div>' +
-      worktrees.map((w) =>
-        '<div class="r" style="display:flex;gap:8px;align-items:center"><span style="flex:1">' + esc(w.path) +
-        '<br><span class="muted">' + esc(w.branch || "(detached)") + '</span></span>' +
-        (w.branch ? '<button class="wt-del ctl" data-p="' + esc(w.path) + '" style="cursor:pointer">ลบ</button>' : "") + '</div>'
-      ).join("") +
-      '<div class="r" style="display:flex;gap:6px;margin-top:6px"><input id="wtName" class="ctl" style="flex:1" placeholder="ชื่อ worktree ใหม่ เช่น feat-x">' +
-      '<button id="wtAdd" class="ctl" style="cursor:pointer">➕ สร้าง</button></div>';
-    document.body.appendChild(wtPop);
-    const b = wtBtn.getBoundingClientRect();
-    wtPop.style.top = (b.bottom + 8) + "px";
-    wtPop.style.right = (innerWidth - b.right) + "px";
-    setTimeout(() => document.addEventListener("click", closeWt, { once: true }));
-    wtPop.querySelector("#wtAdd").onclick = async () => {
-      const name = wtPop.querySelector("#wtName").value.trim();
-      if (!name) return;
-      const r = await fetch("/api/worktrees/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ws: curWs, name }) });
-      const j = await r.json();
-      if (!r.ok) { alert(j.error || "สร้างไม่ได้"); return; }
-      createdName = name;
-      closeWt(); refreshWs(); refreshWt();
-    };
-    wtPop.querySelectorAll(".wt-del").forEach((btn) => {
-      btn.onclick = async (ev) => {
-        ev.stopPropagation();
-        if (!confirm("ลบ worktree นี้? (ไฟล์ในโฟลเดอร์นั้นจะถูกลบด้วย)")) return;
-        const r = await fetch("/api/worktrees/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ws: curWs, p: btn.dataset.p }) });
-        const j = await r.json();
-        if (!r.ok) { alert(j.error || "ลบไม่ได้"); return; }
-        closeWt(); refreshWs(); refreshWt();
+    const count = await fillFileTree(root, "");
+    $("fileCount").textContent = String(count) + " รายการ";
+  } catch (error) {
+    tree.innerHTML = '<div class="empty-note">' + esc(error.message) + '</div>';
+    $("fileCount").textContent = "เกิดข้อผิดพลาด";
+  }
+}
+
+async function fillFileTree(container, rel) {
+  const params = new URLSearchParams({ ws: curWs });
+  if (rel) params.set("path", rel);
+  const response = await fetch("/api/tree?" + params.toString());
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || "เปิดรายการไฟล์ไม่ได้");
+  let count = 0;
+  for (const item of result.items || []) {
+    count++;
+    const itemPath = rel ? rel + "/" + item.n : item.n;
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "file-row";
+    row.innerHTML = '<span>' + (item.d ? "▸ 📁" : "📄") + '</span><span class="file-name">' + esc(item.n) + '</span>' +
+      (!item.d && item.s != null ? '<span class="file-size">' + (item.s > 1024 ? Math.round(item.s / 1024) + " KB" : item.s + " B") + '</span>' : "");
+    container.appendChild(row);
+    if (item.d) {
+      let loaded = false;
+      let childContainer = null;
+      row.onclick = async () => {
+        if (childContainer && !childContainer.hidden) {
+          childContainer.hidden = true;
+          row.firstElementChild.textContent = "▸ 📁";
+          return;
+        }
+        if (!loaded) {
+          childContainer = document.createElement("div");
+          childContainer.className = "file-children";
+          container.insertBefore(childContainer, row.nextSibling);
+          try { count += await fillFileTree(childContainer, itemPath); loaded = true; }
+          catch (error) { childContainer.innerHTML = '<div class="empty-note">' + esc(error.message) + '</div>'; loaded = true; }
+        }
+        childContainer.hidden = false;
+        row.firstElementChild.textContent = "▾ 📂";
+      };
+    } else {
+      row.dataset.path = itemPath;
+      row.onclick = () => openProjectFile(itemPath, row);
+    }
+  }
+  if (!count) container.innerHTML = '<div class="empty-note">ไม่มีไฟล์ในโฟลเดอร์นี้</div>';
+  return count;
+}
+
+function stashCurrentEditorTab() {
+  if (!editorPath) return;
+  const tab = openEditorTabs.find((item) => item.path === editorPath);
+  if (!tab) return;
+  tab.content = $("codeEditor").value;
+  tab.original = editorOriginal;
+}
+
+function renderWorkspaceTabs() {
+  const host = $("workspaceTabs");
+  if (!host) return;
+  host.replaceChildren();
+  const addTab = (id, title, dirty = false) => {
+    const item = document.createElement("div");
+    item.className = "workspace-tab" + (activeWorkspaceTab === id ? " active" : "");
+    item.setAttribute("role", "presentation");
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "tab-select";
+    select.setAttribute("role", "tab");
+    select.setAttribute("aria-selected", String(activeWorkspaceTab === id));
+    select.title = title;
+    select.innerHTML = (id === RUNS_TAB ? '<span aria-hidden="true">▶</span>' : '<span aria-hidden="true">📄</span>') +
+      (dirty ? '<span class="tab-dirty" aria-label="ยังไม่บันทึก">●</span>' : "") +
+      '<span class="tab-title">' + esc(title) + '</span>';
+    select.onclick = () => selectWorkspaceTab(id);
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "tab-close";
+    close.textContent = "×";
+    close.title = "ปิด " + title;
+    close.setAttribute("aria-label", "ปิด " + title);
+    close.onclick = (event) => { event.stopPropagation(); closeWorkspaceTab(id); };
+    item.append(select, close);
+    host.appendChild(item);
+  };
+  for (const tab of openEditorTabs) addTab(tab.path, tab.path.split(/[\\/]/).pop(), tab.content !== tab.original);
+  if (runsTabOpen) addTab(RUNS_TAB, "ผลรัน");
+  else {
+    const add = document.createElement("button");
+    add.type = "button";
+    add.className = "workspace-tab-add";
+    add.textContent = "+ ผลรัน";
+    add.title = "เปิดแท็บผลการรัน";
+    add.onclick = () => openRunsTab(true);
+    host.appendChild(add);
+  }
+}
+
+function showWorkspaceTabContent() {
+  const showingRuns = activeWorkspaceTab === RUNS_TAB && runsTabOpen;
+  $("editorPane").hidden = showingRuns;
+  $("runDock").hidden = !showingRuns;
+  if (showingRuns) { renderRunResults(); return; }
+  const tab = openEditorTabs.find((item) => item.path === activeWorkspaceTab);
+  if (!tab) {
+    editorPath = "";
+    editorOriginal = "";
+    $("editorFileName").textContent = "ยังไม่ได้เลือกไฟล์";
+    $("editorStatus").textContent = "พร้อม";
+    $("editorEmpty").hidden = false;
+    $("codeEditor").hidden = true;
+    $("codeEditor").value = "";
+    $("editorSave").disabled = true;
+    document.querySelectorAll(".file-row.selected").forEach((el) => el.classList.remove("selected"));
+    updateEditorPosition();
+    return;
+  }
+  editorPath = tab.path;
+  editorOriginal = tab.original;
+  $("editorFileName").textContent = tab.path;
+  $("editorFileName").title = tab.path;
+  $("codeEditor").value = tab.content;
+  $("codeEditor").hidden = false;
+  $("editorEmpty").hidden = true;
+  $("editorStatus").textContent = tab.content === tab.original ? "บันทึกแล้ว" : "ยังไม่บันทึก";
+  $("editorSave").disabled = tab.content === tab.original;
+  document.querySelectorAll(".file-row.selected").forEach((el) => el.classList.toggle("selected", el.dataset.path === tab.path));
+  updateEditorPosition();
+}
+
+function selectWorkspaceTab(id) {
+  if (id !== RUNS_TAB && !openEditorTabs.some((tab) => tab.path === id)) return;
+  stashCurrentEditorTab();
+  activeWorkspaceTab = id;
+  renderWorkspaceTabs();
+  showWorkspaceTabContent();
+}
+
+function openRunsTab(select = true) {
+  stashCurrentEditorTab();
+  runsTabOpen = true;
+  if (select) activeWorkspaceTab = RUNS_TAB;
+  renderWorkspaceTabs();
+  showWorkspaceTabContent();
+}
+
+function closeWorkspaceTab(id) {
+  if (id === RUNS_TAB) {
+    runsTabOpen = false;
+    if (activeWorkspaceTab === RUNS_TAB) activeWorkspaceTab = openEditorTabs.at(-1)?.path || "";
+  } else {
+    const index = openEditorTabs.findIndex((tab) => tab.path === id);
+    const tab = openEditorTabs[index];
+    if (!tab) return;
+    if (tab.content !== tab.original && !confirm("ไฟล์นี้ยังไม่ได้บันทึก ปิดแท็บและทิ้งการแก้ไขหรือไม่?")) return;
+    openEditorTabs.splice(index, 1);
+    if (activeWorkspaceTab === id) activeWorkspaceTab = openEditorTabs[Math.min(index, openEditorTabs.length - 1)]?.path || (runsTabOpen ? RUNS_TAB : "");
+  }
+  renderWorkspaceTabs();
+  showWorkspaceTabContent();
+}
+
+async function openProjectFile(rel, row) {
+  stashCurrentEditorTab();
+  const alreadyOpen = openEditorTabs.find((tab) => tab.path === rel);
+  if (alreadyOpen) {
+    selectWorkspaceTab(rel);
+    return;
+  }
+  const params = new URLSearchParams({ ws: curWs, path: rel });
+  $("editorStatus").textContent = "กำลังเปิด…";
+  try {
+    const response = await fetch("/api/file?" + params.toString());
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "เปิดไฟล์ไม่ได้");
+    openEditorTabs.push({ path: rel, content: result.content || "", original: result.content || "" });
+    activeWorkspaceTab = rel;
+    renderWorkspaceTabs();
+    showWorkspaceTabContent();
+    $("codeEditor").focus();
+  } catch (error) {
+    $("editorStatus").textContent = "เปิดไม่สำเร็จ";
+    alert(error.message);
+  }
+}
+
+function updateEditorPosition() {
+  const editor = $("codeEditor");
+  const before = editor.value.slice(0, editor.selectionStart || 0);
+  const lines = before.split("\n");
+  $("editorPosition").textContent = "บรรทัด " + lines.length + " · คอลัมน์ " + (lines[lines.length - 1].length + 1);
+}
+
+$("codeEditor").addEventListener("input", () => {
+  const dirty = $("codeEditor").value !== editorOriginal;
+  $("editorStatus").textContent = dirty ? "ยังไม่บันทึก" : "บันทึกแล้ว";
+  $("editorSave").disabled = !dirty;
+  stashCurrentEditorTab();
+  renderWorkspaceTabs();
+  updateEditorPosition();
+});
+$("codeEditor").addEventListener("click", updateEditorPosition);
+$("codeEditor").addEventListener("keyup", updateEditorPosition);
+$("codeEditor").addEventListener("keydown", (event) => {
+  if (event.key === "Tab") {
+    event.preventDefault();
+    const editor = $("codeEditor"), start = editor.selectionStart, end = editor.selectionEnd;
+    editor.setRangeText("  ", start, end, "end");
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+});
+async function saveEditor() {
+  if (!editorPath || $("editorSave").disabled) return;
+  $("editorStatus").textContent = "กำลังบันทึก…";
+  $("editorSave").disabled = true;
+  try {
+    const params = new URLSearchParams({ ws: curWs, path: editorPath });
+    const response = await fetch("/api/file?" + params.toString(), {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: $("codeEditor").value }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "บันทึกไฟล์ไม่ได้");
+    editorOriginal = $("codeEditor").value;
+    $("editorStatus").textContent = "บันทึกแล้ว";
+    stashCurrentEditorTab();
+    renderWorkspaceTabs();
+  } catch (error) {
+    $("editorStatus").textContent = "บันทึกไม่สำเร็จ";
+    alert(error.message);
+  } finally {
+    $("editorSave").disabled = $("codeEditor").value === editorOriginal;
+  }
+}
+$("editorSave").onclick = saveEditor;
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && !projectView.hidden) {
+    event.preventDefault(); saveEditor();
+  }
+});
+
+async function renderWorktrees() {
+  const body = $("worktreePane");
+  if ($("worktreePane").hidden || !projectView || projectView.hidden) return;
+  if (!curWs) { body.innerHTML = '<div class="empty-note">เลือกหรือเพิ่มโปรเจกต์ก่อนจัดการ worktrees</div>'; return; }
+  body.innerHTML = '<div class="empty-note">กำลังโหลด worktrees…</div>';
+  try {
+    const params = new URLSearchParams({ ws: curWs });
+    const response = await fetch("/api/worktrees?" + params.toString());
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "โฟลเดอร์นี้ยังไม่ใช่ Git project");
+    const primary = projectWorkspaces.find((w) => w.id === "ws-root");
+    const cards = (result.worktrees || []).map((w) => {
+      const entry = projectWorkspaces.find((candidate) => samePath(candidate.dir, w.path));
+      const selected = entry && entry.id === curWs;
+      const isPrimary = primary && samePath(primary.dir, w.path);
+      return '<div class="worktree-card' + (selected ? " active" : "") + '">' +
+        '<button class="wt-select" data-ws="' + esc(entry?.id || "") + '" data-path="' + esc(w.path) + '">' +
+          '<span class="worktree-name">' + esc(w.path) + '</span>' +
+          '<span class="worktree-branch">⑂ ' + esc(w.branch || "detached") + (selected ? " · ใช้อยู่" : "") + '</span>' +
+        '</button><div class="worktree-meta"><span class="pane-caption">' + (isPrimary ? "โปรเจกต์หลัก" : entry ? "พร้อมใช้" : "ยังไม่อยู่ในรายการ") + '</span>' +
+        (!isPrimary && w.branch ? '<button class="wt-remove" data-path="' + esc(w.path) + '">ลบ</button>' : "") + '</div></div>';
+    }).join("");
+    body.innerHTML = '<div class="worktree-note">เลือก worktree เพื่อให้แชต, ไฟล์ และคำสั่งรันใช้โฟลเดอร์เดียวกัน</div>' +
+      (cards || '<div class="empty-note">ไม่พบ worktree</div>') +
+      '<div class="worktree-create"><input id="worktreeName" placeholder="ชื่อ branch ใหม่"><button id="worktreeCreate">＋ สร้าง</button></div>' +
+      '<div id="worktreeMessage" class="worktree-note">สร้าง branch และโฟลเดอร์แยกจากโปรเจกต์หลัก</div>';
+    body.querySelectorAll(".wt-select").forEach((button) => {
+      button.onclick = async () => {
+        let id = button.dataset.ws;
+        if (!id) {
+          const add = await fetch("/api/workspaces", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ dir:button.dataset.path }) });
+          const out = await add.json();
+          if (!add.ok) { $("worktreeMessage").textContent = out.error || "เพิ่ม worktree ไม่สำเร็จ"; return; }
+          const list = await refreshWs(out.workspace.id);
+          id = list.find((item) => samePath(item.dir, button.dataset.path))?.id;
+        }
+        if (id) { curWs = id; await onWorkspaceChange(); }
       };
     });
-  } catch { wtBtn.textContent = "🌿 ?"; }
-};
-async function refreshWt() {
-  try {
-    const { worktrees } = await (await fetch("/api/worktrees?" + treeQ())).json();
-    wtBtn.textContent = "🌿 " + (worktrees.length - 1);
-    wtBtn.title = "worktrees: " + worktrees.length + " (คลิกจัดการ)";
-  } catch { wtBtn.textContent = "🌿"; }
-}
-refreshWt();
-
-/* ================= v16: user badge (logout + admin: จัดการสมาชิก) ================= */
-const userBadge = $("userBadge");
-let uPop = null;
-function closeU() { if (uPop) { uPop.remove(); uPop = null; document.removeEventListener("click", closeU); } }
-userBadge.onclick = async () => {
-  if (uPop) return closeU();
-  const role = userBadge.dataset.role;
-  let usersHtml = "";
-  if (role === "admin") {
-    try {
-      const { users } = await (await fetch("/api/users")).json();
-      usersHtml = '<div class="h">🧑‍💼 สมาชิก (' + users.length + ')</div>' +
-        users.map((u) => '<div class="r" style="display:flex;gap:8px;align-items:center">👤 ' + esc(u.name) +
-          ' <span class="muted">' + esc(u.role) + '</span><span style="flex:1"></span>' +
-          (u.role !== "admin" ? '<button class="u-del ctl" data-id="' + esc(u.id) + '" style="cursor:pointer">ลบ</button>' : "") + '</div>').join("") +
-        '<div class="r" style="display:flex;gap:6px"><input id="uName" class="ctl" style="flex:1" placeholder="ชื่อใหม่"><input id="uPass" class="ctl" style="flex:1" type="password" placeholder="รหัส (6+)">' +
-        '<button id="uAdd" class="ctl" style="cursor:pointer">➕ เพิ่ม</button></div>';
-    } catch {}
-  }
-  uPop = document.createElement("div");
-  uPop.className = "pb-pop";
-  uPop.innerHTML = '<div class="h">👤 ' + esc(userBadge.textContent.replace("👤 ", "")) + '</div>' + usersHtml +
-    '<div class="r"><button id="uOut" class="ctl" style="width:100%;cursor:pointer">ออกจากระบบ</button></div>';
-  document.body.appendChild(uPop);
-  const b = userBadge.getBoundingClientRect();
-  uPop.style.top = (b.bottom + 8) + "px";
-  uPop.style.right = (innerWidth - b.right) + "px";
-  setTimeout(() => document.addEventListener("click", closeU, { once: true }));
-  uPop.querySelector("#uOut").onclick = async () => { await fetch("/api/logout", { method: "POST" }); location.reload(); };
-  const uAdd = uPop.querySelector("#uAdd");
-  if (uAdd) uAdd.onclick = async () => {
-    const r = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: uPop.querySelector("#uName").value.trim(), password: uPop.querySelector("#uPass").value, role: "member" }) });
-    const j = await r.json();
-    if (!r.ok) { alert(j.error || "เพิ่มไม่ได้"); return; }
-    closeU(); userBadge.onclick();
-  };
-  uPop.querySelectorAll(".u-del").forEach((btn) => {
-    btn.onclick = async () => {
-      if (!confirm("ลบสมาชิกคนนี้?")) return;
-      await fetch("/api/users/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: btn.dataset.id }) });
-      closeU(); userBadge.onclick();
+    body.querySelectorAll(".wt-remove").forEach((button) => {
+      button.onclick = async () => {
+        if (!confirm("ลบโฟลเดอร์ worktree นี้ออกจากเครื่องหรือไม่?")) return;
+        const response = await fetch("/api/worktrees/remove", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ws:curWs, p:button.dataset.path }) });
+        const out = await response.json();
+        if (!response.ok) { $("worktreeMessage").textContent = out.error || "ลบ worktree ไม่สำเร็จ"; return; }
+        await refreshWs();
+        await Promise.all([renderProjectFiles(), renderWorktrees()]);
+      };
+    });
+    body.querySelector("#worktreeCreate").onclick = async () => {
+      const name = body.querySelector("#worktreeName").value.trim();
+      if (!name) { $("worktreeMessage").textContent = "ใส่ชื่อ branch ก่อนสร้าง"; return; }
+      const button = body.querySelector("#worktreeCreate");
+      button.disabled = true;
+      $("worktreeMessage").textContent = "กำลังสร้าง worktree…";
+      try {
+        const response = await fetch("/api/worktrees/create", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ws:curWs, name }) });
+        const out = await response.json();
+        if (!response.ok) throw new Error(out.error || "สร้าง worktree ไม่สำเร็จ");
+        const list = await refreshWs();
+        const created = list.find((item) => samePath(item.dir, out.path));
+        if (created) { curWs = created.id; await onWorkspaceChange(); }
+        await renderWorktrees();
+      } catch (error) {
+        $("worktreeMessage").textContent = error.message;
+        button.disabled = false;
+      }
     };
-  });
+  } catch (error) {
+    body.innerHTML = '<div class="empty-note">' + esc(error.message) + '</div>';
+  }
+}
+
+function renderRunResults() {
+  const pane = $("runPane");
+  if (!pane || pane.hidden) return;
+  const session = active();
+  const runs = [];
+  for (const entry of session?.entries || []) {
+    if (entry.type === "activity") for (const run of entry.runs || []) runs.push(run);
+  }
+  pane.innerHTML = runs.length
+    ? runs.slice().reverse().map((run, index) =>
+        '<details class="run-card" ' + (index === 0 ? "open" : "") + '><summary><span class="' + (run.code === 0 ? "run-ok" : "run-fail") + '">' +
+        (run.code === 0 ? "✓" : "×") + ' exit ' + esc(String(run.code)) + '</span> · ' + esc(String(run.cmd || "คำสั่ง")) +
+        ' <span class="pane-caption">(' + esc(String(run.ms || 0)) + ' ms)</span></summary><pre>' + esc(run.text || "(ไม่มีผลลัพธ์)") + '</pre></details>'
+      ).join("")
+    : '<div class="empty-note">ผลรันของแชตนี้จะแสดงที่นี่เมื่อใช้โหมดเขียนโค้ด</div>';
+}
+
+document.querySelectorAll(".sideview-tab").forEach((button) => button.onclick = () => switchProjectPanel(button.dataset.sidebar));
+
+const workspaceDialog = $("workspaceDialog");
+const projectPickerDialog = $("projectPickerDialog");
+function renderProjectPicker() {
+  const list = $("projectPickerList");
+  if (!list) return;
+  list.replaceChildren();
+  for (const workspace of projectWorkspaces) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "project-picker-item" + (workspace.id === curWs ? " active" : "");
+    button.innerHTML = '<span><strong>' + esc(workspace.name) + '</strong><br><small>' + esc(workspace.dir) + '</small></span>' + (workspace.id === curWs ? '<b aria-label="กำลังใช้งาน">✓</b>' : '<span aria-hidden="true">›</span>');
+    button.onclick = async () => {
+      curWs = workspace.id;
+      projectPickerDialog.hidden = true;
+      await onWorkspaceChange();
+    };
+    list.appendChild(button);
+  }
+  if (!projectWorkspaces.length) list.innerHTML = '<div class="empty-note">ยังไม่มีโฟลเดอร์โปรเจกต์</div>';
+}
+$("projectPickerBtn").onclick = () => { renderProjectPicker(); projectPickerDialog.hidden = false; };
+$("projectPickerClose").onclick = () => { projectPickerDialog.hidden = true; };
+projectPickerDialog.onclick = (event) => { if (event.target === projectPickerDialog) projectPickerDialog.hidden = true; };
+$("projectPickerAdd").onclick = () => { projectPickerDialog.hidden = true; $("addWorkspaceBtn").click(); };
+function closeWorkspaceDialog() { workspaceDialog.hidden = true; }
+$("addWorkspaceBtn").onclick = () => {
+  $("workspaceDir").value = "";
+  $("workspaceError").textContent = "";
+  workspaceDialog.hidden = false;
+  $("workspaceDir").focus();
 };
+$("workspaceCancel").onclick = closeWorkspaceDialog;
+workspaceDialog.onclick = (event) => { if (event.target === workspaceDialog) closeWorkspaceDialog(); };
+$("directoryBrowseToggle").onclick = async () => {
+  const browser = $("directoryBrowser");
+  browser.hidden = !browser.hidden;
+  if (browser.hidden) return;
+  const startingPath = $("workspaceDir").value.trim() || activeWorkspace()?.dir || "";
+  await loadDirectoryBrowser(startingPath);
+};
+let directoryBrowserPath = "";
+async function loadDirectoryBrowser(directory) {
+  const list = $("directoryList"), message = $("directoryMessage");
+  list.innerHTML = ""; message.textContent = "กำลังอ่านโฟลเดอร์…";
+  try {
+    const query = new URLSearchParams({ path: directory });
+    const response = await fetch("/api/directories?" + query.toString());
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "เปิดโฟลเดอร์ไม่ได้");
+    directoryBrowserPath = result.current;
+    $("directoryCurrent").textContent = result.current;
+    $("directoryCurrent").title = result.current;
+    $("workspaceDir").value = result.current;
+    $("directoryUp").disabled = !result.parent;
+    $("directoryUp").onclick = () => { if (result.parent) loadDirectoryBrowser(result.parent); };
+    list.innerHTML = "";
+    for (const entry of result.directories || []) {
+      const row = document.createElement("button");
+      row.type = "button"; row.className = "directory-row"; row.textContent = "📁  " + entry.name;
+      row.title = entry.path;
+      row.onclick = () => loadDirectoryBrowser(entry.path);
+      list.appendChild(row);
+    }
+    message.textContent = result.directories.length ? "เลือกโฟลเดอร์เพื่อเข้าไปดู แล้วกด ‘ใช้โฟลเดอร์นี้’" : "ไม่มีโฟลเดอร์ย่อย";
+  } catch (error) { message.textContent = error.message; }
+}
+$("directoryUse").onclick = () => { if (directoryBrowserPath) $("workspaceDir").value = directoryBrowserPath; };
+$("workspaceAdd").onclick = async () => {
+  const dir = $("workspaceDir").value.trim();
+  if (!dir) { $("workspaceError").textContent = "กรอกที่อยู่โฟลเดอร์ก่อน"; return; }
+  const button = $("workspaceAdd");
+  button.disabled = true;
+  $("workspaceError").textContent = "กำลังตรวจสอบโฟลเดอร์…";
+  try {
+    const response = await fetch("/api/workspaces", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ dir }) });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "เพิ่มโฟลเดอร์ไม่สำเร็จ");
+    await refreshWs(result.workspace.id);
+    closeWorkspaceDialog();
+    await onWorkspaceChange();
+  } catch (error) { $("workspaceError").textContent = error.message; }
+  finally { button.disabled = false; }
+};
+$("workspaceDir").addEventListener("keydown", (event) => { if (event.key === "Enter") $("workspaceAdd").click(); });
 
+async function refreshWt() { return renderWorktrees(); }
+refreshWs().then(() => Promise.all([renderProjectFiles(), renderWorktrees()])).catch((error) => {
+  $("projectTree").innerHTML = '<div class="empty-note">' + esc(error.message) + '</div>';
+});
 
+/* ================= โปรไฟล์ผู้ใช้ ================= */
+const userBadge = $("userBadge");
+const accountDialog = $("accountDialog");
+function closeAccountDialog() { accountDialog.hidden = true; }
+async function openAccountDialog() {
+  let profile = { name:userBadge.dataset.name || "", email:"" };
+  let keyInfo = { set:false, masked:"" };
+  try { profile = await (await fetch("/api/profile")).json(); } catch {}
+  try { keyInfo = await (await fetch("/api/key")).json(); } catch {}
+  $("profileName").value = profile.name || "";
+  $("profileEmail").value = profile.email || "";
+  $("keyInput").value = "";
+  $("keyStatus").textContent = keyInfo.set ? "กำลังใช้ key ส่วนตัว " + (keyInfo.masked || "") : "ยังไม่มี key ส่วนตัว จึงใช้ key หลักของเครื่อง";
+  $("accountError").textContent = "";
+  accountDialog.hidden = false;
+}
+userBadge.onclick = openAccountDialog;
+$("accountClose").onclick = closeAccountDialog;
+accountDialog.onclick = (event) => { if (event.target === accountDialog) closeAccountDialog(); };
+$("logoutButton").onclick = async () => { await fetch("/api/logout", { method:"POST" }); location.reload(); };
+$("profileSave").onclick = async () => {
+  const response = await fetch("/api/profile", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ name:$("profileName").value.trim(), email:$("profileEmail").value.trim() }) });
+  const result = await response.json();
+  if (!response.ok) { $("accountError").textContent = result.error || "บันทึกโปรไฟล์ไม่ได้"; return; }
+  refreshUser({ name:result.name });
+  $("accountError").textContent = "บันทึกโปรไฟล์แล้ว";
+};
+$("passwordSave").onclick = async () => {
+  const response = await fetch("/api/password", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ old:$("passwordOld").value, next:$("passwordNew").value }) });
+  const result = await response.json();
+  $("accountError").textContent = response.ok ? "เปลี่ยนรหัสผ่านแล้ว" : (result.error || "เปลี่ยนรหัสผ่านไม่ได้");
+  if (response.ok) { $("passwordOld").value = ""; $("passwordNew").value = ""; }
+};
+$("keySave").onclick = async () => {
+  const response = await fetch("/api/key", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ orKey:$("keyInput").value.trim() }) });
+  const result = await response.json();
+  if (!response.ok) { $("accountError").textContent = result.error || "บันทึก key ไม่ได้"; return; }
+  $("keyInput").value = "";
+  $("accountError").textContent = "บันทึก key แล้ว";
+  const keyInfo = await (await fetch("/api/key")).json();
+  $("keyStatus").textContent = keyInfo.set ? "กำลังใช้ key ส่วนตัว " + (keyInfo.masked || "") : "ยังไม่มี key ส่วนตัว จึงใช้ key หลักของเครื่อง";
+};
 /* ================= load models ================= */
 (async () => {
   try {
@@ -900,7 +1596,7 @@ async function run(ov = {}) {
     planMode: planOn && !ov.approvedPlan ? true : undefined,
     approvedPlan: ov.approvedPlan || undefined,
     // v16: พื้นที่ทำงานที่เลือก (agent จะใช้ root นั้นในการอ่าน/แก้ไฟล์ + run คำสั่ง)
-    ws: ($("wsSel") && $("wsSel").value) || undefined,
+    ws: curWs || undefined,
   };
 
   let liveE = null; // bubble คำตอบที่กำลังไหล (streaming)
@@ -925,8 +1621,8 @@ async function run(ov = {}) {
         if (!ev.startsWith("{")) continue;
         const { type, data } = JSON.parse(ev);
         if (type === "queued") { actE.counts.queued = 1; updateEntry(actE); } // โดนพาเข้าคิว — งานก่อนหน้ายังรันอยู่
-        if (type === "run") { // v16: ผลการรันคำสั่งจริง (code mode) → แผง 🧪 ใน activity
-          actE.runs = actE.runs || []; actE.runs.push(data); updateEntry(actE);
+        if (type === "run") { // เก็บผลรันเป็นแท็บแยก และเปิดให้ดูผลล่าสุดได้ทันที
+          actE.runs = actE.runs || []; actE.runs.push(data); updateEntry(actE); showProjectView("runs");
         }
         if (type === "log" && data) { tallyLine(actE, data); updateEntry(actE); }
         if (type === "plan") { // Tier 1: การ์ดแผน — สร้างใหม่ครั้งแรก แล้ว update สดตาม plan_done
@@ -1010,6 +1706,9 @@ $("export").onclick = () => {
 
 /* boot */
 if (!sessions.length) newSession(); else { renderSidebar(); renderChat(); }
+$ ("sidebarToggle").onclick = () => document.body.classList.toggle("sidebar-open");
+$ ("sessList").addEventListener("click", (e) => { if (e.target.closest(".sess")) document.body.classList.remove("sidebar-open"); });
+$ ("newChat").addEventListener("click", () => document.body.classList.remove("sidebar-open"));
 window.addEventListener("beforeunload", saveSessions);
 </script>
 </body>

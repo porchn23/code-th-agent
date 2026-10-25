@@ -13,9 +13,11 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const { safePathInRoot } = require("./security-guards.js");
+const { readWorkspaceFile, writeWorkspaceFile } = require("./workspace-files.js");
 const { CONFIG, agentLoop, getApiKey, playbookSummary, evalSummary, getTools, loadSkills, loadAgentsRules, AGENTS_FILE, loadPlan, loadCkpts, restoreCheckpoint, diffCheckpoint } = require("./research-agent.js");
 
-const PORT = 8787;
+const PORT = Number(process.env.AGENT_PORT) || 8787;
 const ANSI_RE = /\x1b\[[0-9;]*m/g; // ลบสี ANSI ก่อนส่งไปหน้าเว็บ
 const DEFAULT_MODEL = CONFIG.model; // เก็บ default ไว้ restore หลังแต่ละ run
 
@@ -58,6 +60,7 @@ const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const USERS_FILE = process.env.AGENT_USERS_FILE || path.join(__dirname, "agent_users.json");
 const WS_FILE = process.env.AGENT_WORKSPACES_FILE || path.join(__dirname, "agent_workspaces.json");
+const MEMBER_WS_ROOT = path.resolve(process.env.AGENT_WORKSPACE_ROOT || path.join(__dirname, "workspaces"));
 const authOff = () => process.env.AGENT_NO_AUTH === "1"; // สวิตช์ปิด (ใช้ในเทสเท่านั้น)
 
 function loadJson(file, fb) { try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return fb; } }
@@ -66,15 +69,31 @@ function saveJson(file, v) { fs.writeFileSync(file, JSON.stringify(v, null, 2));
 // ---- users ----
 function loadUsers() { const u = loadJson(USERS_FILE, []); return Array.isArray(u) ? u : []; }
 const hashPassword = (pw, salt) => crypto.scryptSync(String(pw), String(salt), 64).toString("hex");
-function makeUser(name, password, role) {
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function makeUser(name, password, role, email) {
   const salt = crypto.randomBytes(16).toString("hex");
   return { id: "u-" + crypto.randomBytes(4).toString("hex"), name: String(name).trim().slice(0, 30),
-    role: role === "admin" ? "admin" : "member", salt, hash: hashPassword(password, salt), created: Date.now() };
+    email: email ? String(email).trim().toLowerCase() : "", role: role === "admin" ? "admin" : "member", salt, hash: hashPassword(password, salt),
+    orKey: "", created: Date.now() };
 }
+function findUser(name) { return loadUsers().find((u) => u.name === name) || null; }
 
-// ---- sessions (หน่วยความจำ — restart แล้ว login ใหม่: เพียงพอสำหรับ local tool) ----
-const sessions = new Map(); // sid → { user, exp }
+// ---- sessions (เก็บต่อเนื่องลงไฟล์ — restart server แล้ว login ไม่หลุด) ----
+const SESSIONS_FILE = process.env.AGENT_SESSIONS_FILE || path.join(__dirname, "agent_sessions.json");
+const sessions = new Map(); // sid → { user: {name,email,role}, exp }
 const SESSION_TTL = 7 * 24 * 3600 * 1000;
+function persistSessions() {
+  try {
+    const now = Date.now();
+    const obj = {};
+    for (const [sid, s] of sessions) if (s.exp > now) obj[sid] = s;
+    saveJson(SESSIONS_FILE, obj);
+  } catch { /* เขียนไม่ได้ → session memory-only */ }
+}
+(function loadSessions() { // บูต: กู้ session เก่า + ตัดของหมดอายุทิ้ง
+  const saved = loadJson(SESSIONS_FILE, null);
+  if (saved && typeof saved === "object") for (const [sid, s] of Object.entries(saved)) if (s?.exp > Date.now()) sessions.set(sid, s);
+})();
 const failCounts = new Map(); // กันเดารหัส: ล้ม 5 ครั้ง → ล็อกชื่อนั้น 30 วิ
 function parseCookies(req) {
   const out = {};
@@ -108,6 +127,25 @@ function saveWorkspaces(list) { saveJson(WS_FILE, list); }
 function findWs(id) {
   const list = loadWorkspaces();
   return list.find((w) => w.id === id) || list.find((w) => w.id === rootWsId) || list[0];
+}
+function workspaceById(id) {
+  return loadWorkspaces().find((w) => w.id === id) || null;
+}
+function canAccessWorkspace(ws, user) {
+  if (!ws) return false;
+  if (authOff()) return true;
+  if (!user) return false;
+  return user.role === "admin" || ws.id === rootWsId || !ws.owner || ws.owner === user.name;
+}
+function canManageWorkspace(ws, user) {
+  return !!ws && (authOff() || (!!user && (user.role === "admin" || ws.owner === user.name)));
+}
+function authorizedWorkspace(id, user) {
+  const ws = workspaceById(id) || (!id ? workspaceById(rootWsId) : null);
+  return canAccessWorkspace(ws, user) ? ws : null;
+}
+function safeWorkspacePath(root, rel) {
+  return safePathInRoot(root, rel);
 }
 
 // ---- git worktree — สร้าง/ลบ พื้นที่งานแยกข้างโปรเจค (repo เดียวกัน หลายกิ่งขนานกัน) ----
@@ -146,10 +184,7 @@ function listWorktrees(dir) {
 // ---- tree/file explorer (ดูโครงสร้างโปรเจค) ----
 const TREE_SKIP = /^(node_modules|\.git|agent_checkpoints|\.agent_memory|agent_users|agent_workspaces)$/;
 function safeTreePath(wsDir, rel) {
-  const R = path.resolve(wsDir);
-  const abs = path.resolve(R, String(rel || "."));
-  if (abs !== R && !abs.startsWith(R + path.sep)) throw new Error("Path escapes the workspace");
-  return abs;
+  return safeWorkspacePath(wsDir, rel);
 }
 
 
@@ -181,12 +216,20 @@ async function runTask(parsed, res) {
   const send = (type, data) => {
     try { res.write(`data: ${JSON.stringify({ type, data })}\n\n`); } catch {}
   };
+  let serverKey = null; // v17: key ของเจ้าของเครื่อง (mock ไว้คืนใน finally ถ้า run นี้ใช้ key สมาชิก)
   // ปุ่ม Stop ของ UI → abort → ยกเลิก LLM call + tool ที่กำลังวิ่งจริง
   // (ใช้ response ไม่ใช่ request — req 'close' ไฟร์ตอน body อ่านจบ ไม่ใช่ตอนจบงาน)
   const controller = new AbortController();
   res.on("close", () => { if (!res.writableEnded) controller.abort(); });
   try {
     await keyReady;
+    // v17 per-user key: สมาชิกที่ import key เอง → run ของเขาใช้ key นั้น (ไม่เผื่อเหมือนกันกับเจ้าของเครื่อง)
+    serverKey = CONFIG.apiKey;
+    const u = parsed._user && findUser(parsed._user.name);
+    if (u?.orKey) {
+      CONFIG.apiKey = u.orKey;
+      send("log", `🔑 ใช้ key ของ ${u.name} (…${u.orKey.slice(-4)}) สำหรับ run นี้`);
+    }
     // เลือก model: ถ้า UI ส่งมา ต้อง list ของจริงมีและรองรับ tools
     // (validate จาก data ไม่รับคำมั่นจาก client — แนวทางเดียวกับทุก input ของ agent)
     let useModel = DEFAULT_MODEL;
@@ -213,7 +256,8 @@ async function runTask(parsed, res) {
       temp: useTemp,
       maxSteps: useSteps != null ? useSteps : (modeN === "code" ? 24 : undefined),
       mode: modeN, // "research" (default) | "code" (เพิ่ม run_command/file_edit/file_grep + verification gate)
-      tools: getTools(modeN, { save: planTL, done: !!approvedPlan }),
+      tools: getTools(modeN, { save: planTL, done: !!approvedPlan, trusted: authOff() || u?.role === "admin" }),
+      trusted: authOff() || u?.role === "admin",
       history: cleanHistory,
       signal: controller.signal,
       planMode: planTL,
@@ -237,6 +281,7 @@ async function runTask(parsed, res) {
     if (!controller.signal.aborted) send("error", e.message || String(e));
   } finally {
     CONFIG.model = DEFAULT_MODEL; // restore — run ถัดไปกลับไปใช้ default
+    try { if (serverKey !== null) CONFIG.apiKey = serverKey; } catch {} // v17: คืน key เจ้าของเครื่อง (ถ้า run นี้ใช้ key ของสมาชิก)
     running = false;
     try { if (!res.writableEnded) res.end(); } catch {}
     // คิว: มีงานรออยู่ (และ client ยังต่ออยู่) → เริ่มงานนั้นต่อทันที
@@ -255,7 +300,7 @@ const server = http.createServer(async (req, res) => {
 
   // ---- Auth guard: ทุก /api/* ต้อง login (ยกเว้น open list + /api/me) ----
   // AGENT_NO_AUTH=1 → เข้าได้หมด (ใช้ใน tests + local trust mode)
-  const OPEN_PATHS = ["/api/login", "/api/setup", "/api/logout", "/api/me", "/api/models"];
+  const OPEN_PATHS = ["/api/login", "/api/register", "/api/setup", "/api/logout", "/api/me", "/api/models"];
   if (req.url.startsWith("/api/") && !authOff()) {
     const open = OPEN_PATHS.find((p) => req.url === p || req.url.startsWith(p + "?"));
     if (!open && !currentUser(req)) {
@@ -361,76 +406,183 @@ const server = http.createServer(async (req, res) => {
   // =====================================================
 
   // ---- สมาชิก: ผู้ช่วยแบ่ง body พร้อมตัดของใหญ่เกิน ----
-  const readBody = (req) => new Promise((resolve, reject) => {
+  const readBody = (req, maxBytes = 40000) => new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (c) => { body += c; if (body.length > 40000) req.destroy(); });
-    req.on("end", () => { try { resolve(JSON.parse(body || "{}")); } catch (e) { reject(e); } });
+    let tooLarge = false;
+    req.on("data", (c) => {
+      if (tooLarge) return;
+      body += c;
+      if (Buffer.byteLength(body, "utf8") > maxBytes) { tooLarge = true; body = ""; }
+    });
+    req.on("end", () => {
+      if (tooLarge) return reject(new Error("request body too large"));
+      try { resolve(JSON.parse(body || "{}")); } catch (e) { reject(e); }
+    });
   });
   const jsonOut = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
 
   // ---- first-run: สร้างบัญชีเจ้าของคนแรก (ใช้ได้ตอน users.length===0 เท่านั้น) ----
   if (req.method === "POST" && req.url === "/api/setup") {
-    return readBody(req).then(({ name, password }) => {
+    return readBody(req).then(({ name, password, email }) => {
       if (loadUsers().length) return jsonOut(403, { error: "เซ็ตอัพไปแล้ว — ใช้การ login แทน" });
       name = String(name || "").trim();
       if (name.length < 2) return jsonOut(400, { error: "ชื่อต้องมีอย่างน้อย 2 ตัว" });
       if (String(password || "").length < 6) return jsonOut(400, { error: "รหัสผ่านต้องมีอย่างน้อย 6 ตัว" });
+      if (email && !EMAIL_RE.test(String(email))) return jsonOut(400, { error: "รูปแบบอีเมลไม่ถูกต้อง" });
       const users = loadUsers();
-      const user = makeUser(name, password, "admin");
+      const user = makeUser(name, password, "admin", email);
       saveJson(USERS_FILE, [...users, user]);
       const sid = crypto.randomBytes(24).toString("hex");
-      sessions.set(sid, { user: { name: user.name, role: user.role }, exp: Date.now() + SESSION_TTL });
+      sessions.set(sid, { user: { name: user.name, email: user.email, role: user.role }, exp: Date.now() + SESSION_TTL });
+      persistSessions();
       res.setHeader("Set-Cookie", `agent_ses=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=604800`);
-      return jsonOut(200, { user: { name: user.name, role: user.role } });
+      return jsonOut(200, { user: { name: user.name, email: user.email, role: user.role } });
     }).catch(() => jsonOut(400, { error: "invalid body" }));
   }
 
   // ---- login (มี rate-limit: พลาด 5 ครั้ง → ล็อค 30 วิ) ----
   if (req.method === "POST" && req.url === "/api/login") {
-    return readBody(req).then(({ name, password }) => {
-      const ip = "local"; // ผู้ใช้ local — อนาคตอาจร่วมกับ x-forwarded-for จาก reverse proxy
-      const pre = failCounts.get(ip) || { n: 0, until: 0 };
+    return readBody(req).then(({ name: ldname, password }) => {
+      const who = "local"; // ผู้ใช้ local — อนาคตอาจร่วมกับ x-forwarded-for จาก reverse proxy
+      const pre = failCounts.get(who) || { n: 0, until: 0 };
       if (pre.until > Date.now()) return jsonOut(429, { error: "ลองครั้งเดียวพัก 30 วินาที" });
       const users = loadUsers();
-      const user = users.find((u) => u.name === String(name || ""));
+      const user = users.find((u) => u.name === String(ldname || "")) || users.find((u) => u.email && u.email === String(ldname || "").toLowerCase());
       const ok = user && (() => {
         try {
           return crypto.timingSafeEqual(Buffer.from(user.hash, "hex"), Buffer.from(hashPassword(String(password || ""), user.salt), "hex"));
         } catch { return false; }
       })();
       if (!ok) {
-        failCounts.set(ip, pre.n + 1 >= 5 ? { n: 0, until: Date.now() + 30000 } : { n: pre.n + 1, until: 0 });
-        return jsonOut(401, { error: "ชื่อหรือรหัสผ่านไม่ถูกต้อง" });
+        failCounts.set(who, pre.n + 1 >= 5 ? { n: 0, until: Date.now() + 30000 } : { n: pre.n + 1, until: 0 });
+        return jsonOut(401, { error: "ชื่อ/อีเมล หรือรหัสผ่านไม่ถูกต้อง" });
       }
-      failCounts.delete(ip);
+      failCounts.delete(who);
       const sid = crypto.randomBytes(24).toString("hex");
-      sessions.set(sid, { user: { name: user.name, role: user.role }, exp: Date.now() + SESSION_TTL });
+      sessions.set(sid, { user: { name: user.name, email: user.email, role: user.role }, exp: Date.now() + SESSION_TTL });
+      persistSessions();
       res.setHeader("Set-Cookie", `agent_ses=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=604800`);
-      return jsonOut(200, { user: { name: user.name, role: user.role } });
+      return jsonOut(200, { user: { name: user.name, email: user.email, role: user.role } });
+    }).catch(() => jsonOut(400, { error: "invalid body" }));
+  }
+
+  // ---- สมัครสมาชิกเอง (v17): ได้ role member ทันที ----
+  if (req.method === "POST" && req.url === "/api/register") {
+    return readBody(req).then(({ name, email, password }) => {
+      name = String(name || "").trim();
+      email = String(email || "").trim().toLowerCase();
+      if (name.length < 2) return jsonOut(400, { error: "ชื่อต้องมีอย่างน้อย 2 ตัว" });
+      if (!EMAIL_RE.test(email)) return jsonOut(400, { error: "รูปแบบอีเมลไม่ถูกต้อง" });
+      if (String(password || "").length < 6) return jsonOut(400, { error: "รหัสผ่านต้องมีอย่างน้อย 6 ตัว" });
+      const users = loadUsers();
+      if (users.length >= 20) return jsonOut(400, { error: "สมาชิกเต็ม (สูงสุด 20)" });
+      if (users.some((u) => u.name === name)) return jsonOut(400, { error: "ชื่อนี้ถูกใช้แล้ว" });
+      if (users.some((u) => u.email === email)) return jsonOut(400, { error: "อีเมลนี้ถูกใช้แล้ว" });
+      const user = makeUser(name, password, "member", email);
+      saveJson(USERS_FILE, [...users, user]);
+      const sid = crypto.randomBytes(24).toString("hex"); // auto-login
+      sessions.set(sid, { user: { name: user.name, email: user.email, role: user.role }, exp: Date.now() + SESSION_TTL });
+      persistSessions();
+      res.setHeader("Set-Cookie", `agent_ses=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=604800`);
+      return jsonOut(200, { user: { name: user.name, email: user.email, role: user.role } });
     }).catch(() => jsonOut(400, { error: "invalid body" }));
   }
 
   // ---- logout ----
   if (req.method === "POST" && req.url === "/api/logout") {
     const sid = parseCookies(req).agent_ses;
-    if (sid) sessions.delete(sid);
+    if (sid) { sessions.delete(sid); persistSessions(); }
     res.setHeader("Set-Cookie", "agent_ses=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0");
     return jsonOut(200, { ok: true });
   }
 
   // ---- ตัวตนของผู้ใช้ปัจจุบัน ----
   if (req.method === "GET" && req.url === "/api/me") {
-    if (authOff()) return jsonOut(200, { user: { name: "local", role: "admin" } });
+    if (authOff()) return jsonOut(200, { user: { name: "local", email: "", role: "admin" } });
     if (loadUsers().length === 0) return jsonOut(200, { setup: true });
     const cu = currentUser(req);
     return cu ? jsonOut(200, { user: cu }) : jsonOut(401, { error: "Unauthenticated" });
+  }
+
+  // ---- โปรไฟล์ + รหัสผ่าน + key ส่วนตัว (v17) ----
+  if (req.method === "GET" && req.url === "/api/profile") {
+    const cu = currentUser(req);
+    if (!cu) return jsonOut(401, { error: "Unauthenticated" });
+    return jsonOut(200, { name: cu.name, email: cu.email || "", role: cu.role });
+  }
+  if (req.method === "POST" && req.url === "/api/profile") {
+    return readBody(req).then(({ name, email }) => {
+      const cu = currentUser(req);
+      if (!cu) return jsonOut(401, { error: "Unauthenticated" });
+      const users = loadUsers();
+      const me = users.find((u) => u.name === cu.name);
+      if (!me) return jsonOut(404, { error: "ไม่พบบัญชีนี้แล้ว" });
+      const nn = name !== undefined ? String(name).trim() : cu.name;
+      const ne = email !== undefined ? String(email).trim().toLowerCase() : (me.email || "");
+      if (nn.length < 2) return jsonOut(400, { error: "ชื่อต้องมีอย่างน้อย 2 ตัว" });
+      if (ne && !EMAIL_RE.test(ne)) return jsonOut(400, { error: "รูปแบบอีเมลไม่ถูกต้อง" });
+      if (nn !== cu.name && users.some((u) => u.name === nn)) return jsonOut(400, { error: "ชื่อนี้ถูกใช้แล้ว" });
+      if (ne && ne !== me.email && users.some((u) => u.email === ne)) return jsonOut(400, { error: "อีเมลนี้ถูกใช้แล้ว" });
+      const oldName = me.name;
+      me.name = nn; me.email = ne;
+      saveJson(USERS_FILE, users);
+      if (nn !== oldName) {
+        const workspaces = loadWorkspaces();
+        let changed = false;
+        for (const ws of workspaces) if (ws.owner === oldName) { ws.owner = nn; changed = true; }
+        if (changed) saveWorkspaces(workspaces);
+      }
+      // เปลี่ยนชื่อ → ยก session ให้ตามใหม่ด้วย
+      const sid = parseCookies(req).agent_ses;
+      if (sid && sessions.has(sid)) sessions.set(sid, { user: { name: nn, email: ne, role: me.role }, exp: sessions.get(sid).exp });
+      persistSessions();
+      return jsonOut(200, { ok: true, name: nn, email: ne });
+    }).catch(() => jsonOut(400, { error: "invalid body" }));
+  }
+  if (req.method === "POST" && req.url === "/api/password") {
+    return readBody(req).then(({ old: oldPw, next }) => {
+      const cu = currentUser(req);
+      if (!cu) return jsonOut(401, { error: "Unauthenticated" });
+      if (String(next || "").length < 6) return jsonOut(400, { error: "รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัว" });
+      const users = loadUsers();
+      const me = users.find((u) => u.name === cu.name);
+      if (!me) return jsonOut(404, { error: "ไม่พบบัญชีนี้แล้ว" });
+      let oldOk = false;
+      try { oldOk = crypto.timingSafeEqual(Buffer.from(me.hash, "hex"), Buffer.from(hashPassword(String(oldPw || ""), me.salt), "hex")); } catch {}
+      if (!oldOk) return jsonOut(401, { error: "รหัสผ่านเดิมไม่ถูกต้อง" });
+      me.salt = crypto.randomBytes(16).toString("hex");
+      me.hash = hashPassword(String(next), me.salt);
+      saveJson(USERS_FILE, users);
+      return jsonOut(200, { ok: true });
+    }).catch(() => jsonOut(400, { error: "invalid body" }));
+  }
+  if (req.method === "POST" && req.url === "/api/key") {
+    return readBody(req).then(({ orKey }) => {
+      const cu = currentUser(req);
+      if (!cu) return jsonOut(401, { error: "Unauthenticated" });
+      orKey = String(orKey || "").trim();
+      if (orKey && !/^sk-or-/.test(orKey)) return jsonOut(400, { error: "รูปแบบ key ไม่ถูก (ต้องขึ้นต้น sk-or-)" });
+      if (orKey && orKey.length < 20) return jsonOut(400, { error: "key สั้นเกินไป" });
+      const users = loadUsers();
+      const me = users.find((u) => u.name === cu.name);
+      if (!me) return jsonOut(404, { error: "ไม่พบบัญชีนี้แล้ว" });
+      me.orKey = orKey; // เก็บในเครื่องเดียว (ไฟล์ agent_users.json อยู่นอก git) — ไม่เด้งกลับหน้า UI อีก
+      saveJson(USERS_FILE, users);
+      return jsonOut(200, { ok: true, masked: orKey ? `…${orKey.slice(-4)}` : "" });
+    }).catch(() => jsonOut(400, { error: "invalid body" }));
+  }
+  if (req.method === "GET" && req.url === "/api/key") {
+    const cu = currentUser(req);
+    if (!cu) return jsonOut(401, { error: "Unauthenticated" });
+    const me = findUser(cu.name);
+    return jsonOut(200, { set: !!(me?.orKey), masked: me?.orKey ? `…${me.orKey.slice(-4)}` : "" });
   }
 
   // ---- สมาชิกทั้งหมด (admin เท่านั้น; hash ไม่เด้งออก) ----
   if (req.method === "GET" && req.url === "/api/users") {
     const cu = currentUser(req);
     if (!cu || cu.role !== "admin") return jsonOut(403, { error: "admin เท่านั้น" });
-    return jsonOut(200, { users: loadUsers().map(({ id, name, role, created }) => ({ id, name, role, created })) });
+    return jsonOut(200, { users: loadUsers().map(({ id, name, email, role, created }) => ({ id, name, email, role, created })) });
   }
   if (req.method === "POST" && req.url === "/api/users") {
     return readBody(req).then(({ name, password, role }) => {
@@ -443,7 +595,7 @@ const server = http.createServer(async (req, res) => {
       const users = loadUsers();
       if (users.length >= 20) return jsonOut(400, { error: "สมาชิกเต็ม (สูงสุด 20)" });
       if (users.some((u) => u.name === name)) return jsonOut(400, { error: "ชื่อนี้ถูกใช้แล้ว" });
-      const user = makeUser(name, role);
+      const user = makeUser(name, password, role);
       saveJson(USERS_FILE, [...users, user]);
       return jsonOut(200, { ok: true, user: { id: user.id, name: user.name, role: user.role } });
     }).catch(() => jsonOut(400, { error: "invalid body" }));
@@ -461,9 +613,12 @@ const server = http.createServer(async (req, res) => {
     }).catch(() => jsonOut(400, { error: "invalid body" }));
   }
 
-  // ---- พื้นที่ทำงาน (workspaces) ----
+  // ---- พื้นที่ทำงาน (workspaces — มีเจ้าของตั้งแต่ v17: member เห็นของตัวเอง + ws-root ใช้ร่วม) ----
   if (req.method === "GET" && req.url === "/api/workspaces") {
-    return jsonOut(200, { workspaces: loadWorkspaces() });
+    const cu = currentUser(req);
+    const isAdmin = !cu || cu.role === "admin"; // authOff → ไม่มี cu → เห็นทั้งหมด
+    const mine = loadWorkspaces().filter((w) => !w.owner || w.owner === (cu?.name ?? "") || isAdmin || w.id === rootWsId);
+    return jsonOut(200, { workspaces: mine });
   }
   if (req.method === "POST" && req.url === "/api/workspaces") {
     return readBody(req).then(({ dir }) => {
@@ -472,10 +627,24 @@ const server = http.createServer(async (req, res) => {
       let st = null;
       try { st = fs.statSync(resolved); } catch {}
       if (!st || !st.isDirectory()) return jsonOut(400, { error: "ไม่พบโฟลเดอร์นี้" });
+      const cu = currentUser(req);
+      if (cu && cu.role !== "admin") {
+        fs.mkdirSync(MEMBER_WS_ROOT, { recursive: true });
+        const memberSegment = encodeURIComponent(cu.name);
+        const memberRoot = path.resolve(MEMBER_WS_ROOT, memberSegment);
+        fs.mkdirSync(memberRoot, { recursive: true });
+        try { safeWorkspacePath(MEMBER_WS_ROOT, memberSegment); }
+        catch { return jsonOut(403, { error: "โฟลเดอร์ส่วนตัวต้องไม่ชี้ออกนอกพื้นที่ทำงาน" }); }
+        const rel = path.relative(memberRoot, resolved);
+        if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel))
+          return jsonOut(403, { error: "สมาชิกเพิ่ม workspace ได้เฉพาะในโฟลเดอร์ส่วนตัวของตน" });
+        try { safeWorkspacePath(memberRoot, rel || "."); }
+        catch { return jsonOut(403, { error: "workspace ต้องอยู่ภายในโฟลเดอร์ส่วนตัวจริง" }); }
+      }
       const list = loadWorkspaces();
       if (list.length >= 20) return jsonOut(400, { error: "พื้นที่ทำงานเต็ม (สูงสุด 20)" });
       if (list.some((w) => w.dir === resolved)) return jsonOut(400, { error: "พื้นที่ทำงานนี้มีอยู่แล้ว" });
-      const ws = { id: wsIdOf(resolved), name: path.basename(resolved), dir: resolved };
+      const ws = { id: wsIdOf(resolved), name: path.basename(resolved), dir: resolved, owner: cu ? cu.name : "local" };
       saveJson(WS_FILE, [...list, ws]);
       return jsonOut(200, { ok: true, workspace: ws });
     }).catch(() => jsonOut(400, { error: "invalid body" }));
@@ -484,17 +653,38 @@ const server = http.createServer(async (req, res) => {
     return readBody(req).then(({ id }) => {
       if (id === rootWsId) return jsonOut(400, { error: "ลบพื้นที่หลักไม่ได้" });
       const list = loadWorkspaces();
-      if (!list.some((w) => w.id === String(id))) return jsonOut(404, { error: "ไม่พบพื้นที่ทำงานนี้" });
+      const victim = list.find((w) => w.id === String(id));
+      if (!victim) return jsonOut(404, { error: "ไม่พบพื้นที่ทำงานนี้" });
+      const cu = currentUser(req); // authOff/black-box: ไม่มี cu → อนุญาต (โหมด trust)
+      if (cu && cu.role !== "admin" && victim.owner && victim.owner !== cu.name) return jsonOut(403, { error: "ลบได้เฉพาะเจ้าของหรือ admin" });
       saveJson(WS_FILE, list.filter((w) => w.id !== String(id)));
       return jsonOut(200, { ok: true });
     }).catch(() => jsonOut(400, { error: "invalid body" }));
+  }
+
+  // ---- เลือกโฟลเดอร์โปรเจกต์ (แสดงเฉพาะโฟลเดอร์, admin/local เท่านั้น) ----
+  if (req.method === "GET" && req.url.startsWith("/api/directories?")) {
+    const user = currentUser(req);
+    if (!authOff() && (!user || user.role !== "admin")) return jsonOut(403, { error: "เฉพาะ admin ที่เลือกโฟลเดอร์เครื่องได้" });
+    try {
+      const qs = new URL(req.url, "http://x");
+      const current = path.resolve(qs.searchParams.get("path") || process.cwd());
+      if (!fs.statSync(current).isDirectory()) return jsonOut(400, { error: "ที่อยู่นี้ไม่ใช่โฟลเดอร์" });
+      const directories = fs.readdirSync(current, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+        .map((entry) => ({ name: entry.name, path: path.join(current, entry.name) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      const parent = path.dirname(current);
+      return jsonOut(200, { current, parent: parent === current ? null : parent, directories });
+    } catch (e) { return jsonOut(400, { error: e.message }); }
   }
 
   // ---- ตัวสำรวจไฟล์ (tree 1 ระดับ + preview ไฟล์ text) ----
   if (req.method === "GET" && req.url.startsWith("/api/tree?")) {
     try {
       const qs = new URL(req.url, "http://x");
-      const ws = findWs(qs.searchParams.get("ws"));
+      const ws = authorizedWorkspace(qs.searchParams.get("ws"), currentUser(req));
+      if (!ws) return jsonOut(404, { error: "ไม่พบพื้นที่ทำงานนี้" });
       const full = safeTreePath(ws.dir, qs.searchParams.get("path") || ""); // abs path แล้ว — ห้าม join ซ้ำ
       const out = [];
       for (const d of fs.readdirSync(full, { withFileTypes: true })) {
@@ -510,25 +700,38 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url.startsWith("/api/file?")) {
     try {
       const qs = new URL(req.url, "http://x");
-      const ws = findWs(qs.searchParams.get("ws"));
-      const full = safeTreePath(ws.dir, qs.searchParams.get("path") || ""); // abs — ห้าม join ซ้ำ
-      const st = fs.statSync(full);
-      if (st.size > 120000) return jsonOut(400, { error: "ไฟล์ใหญ่เกิน (>120 KB)" });
-      const content = fs.readFileSync(full, "utf8");
-      return jsonOut(200, { content, bytes: st.size });
+      const ws = authorizedWorkspace(qs.searchParams.get("ws"), currentUser(req));
+      if (!ws) return jsonOut(404, { error: "ไม่พบพื้นที่ทำงานนี้" });
+      return jsonOut(200, readWorkspaceFile(ws.dir, qs.searchParams.get("path") || ""));
     } catch (e) { return jsonOut(400, { error: e.message }); }
+  }
+  if (req.method === "PUT" && req.url.startsWith("/api/file?")) {
+    return readBody(req, 140000).then(({ content }) => {
+      try {
+        const qs = new URL(req.url, "http://x");
+        const user = currentUser(req);
+        const ws = authorizedWorkspace(qs.searchParams.get("ws"), user);
+        if (!ws || !canManageWorkspace(ws, user)) return jsonOut(404, { error: "ไม่มีสิทธิ์แก้ไขไฟล์ในพื้นที่นี้" });
+        const saved = writeWorkspaceFile(ws.dir, qs.searchParams.get("path") || "", content);
+        return jsonOut(200, { ok: true, ...saved });
+      } catch (e) { return jsonOut(400, { error: e.message }); }
+    }).catch((e) => jsonOut(400, { error: e.message || "invalid body" }));
   }
 
   // ---- git worktrees: ดู/สร้าง/ลบ (พร้อม sync workspace registry) ----
   if (req.method === "GET" && req.url.startsWith("/api/worktrees?")) {
     const qs = new URL(req.url, "http://x");
-    try { return jsonOut(200, { worktrees: listWorktrees(findWs(qs.searchParams.get("ws")).dir) }); }
+    const ws = authorizedWorkspace(qs.searchParams.get("ws"), currentUser(req));
+    if (!ws) return jsonOut(404, { error: "ไม่พบพื้นที่ทำงานนี้" });
+    try { return jsonOut(200, { worktrees: listWorktrees(ws.dir) }); }
     catch (e) { return jsonOut(400, { error: e.message }); }
   }
   if (req.method === "POST" && req.url === "/api/worktrees/create") {
     return readBody(req).then(async ({ ws: wsId, name }) => {
       if (!/^[A-Za-z0-9._-]{1,40}$/.test(String(name || ""))) return jsonOut(400, { error: "ชื่ออนุญาต a-z 0-9 . _ - ไม่เกิน 40 ตัว" });
-      const ws = findWs(wsId);
+      const user = currentUser(req);
+      const ws = authorizedWorkspace(wsId, user);
+      if (!ws || !canManageWorkspace(ws, user)) return jsonOut(404, { error: "ไม่พบพื้นที่ทำงานนี้" });
       const wcPath = path.join(path.dirname(ws.dir), name);
       if (fs.existsSync(wcPath)) return jsonOut(400, { error: "โฟลเดอร์ปลายทางมีอยู่แล้ว" });
       const r = runGit(["worktree", "add", wcPath, "-b", name], ws.dir);
@@ -536,16 +739,19 @@ const server = http.createServer(async (req, res) => {
       const list = loadWorkspaces();
       const resolved = path.resolve(wcPath);
       if (!list.some((w) => w.dir === resolved) && list.length < 20)
-        saveJson(WS_FILE, [...list, { id: wsIdOf(resolved), name, dir: resolved }]);
+        saveJson(WS_FILE, [...list, { id: wsIdOf(resolved), name, dir: resolved, owner: user?.name || null }]);
       return jsonOut(200, { ok: true, path: resolved });
     }).catch(() => jsonOut(400, { error: "invalid body" }));
   }
   if (req.method === "POST" && req.url === "/api/worktrees/remove") {
     return readBody(req).then(async ({ ws: wsId, p }) => {
-      const ws = findWs(wsId);
+      const user = currentUser(req);
+      const ws = authorizedWorkspace(wsId, user);
+      if (!ws || !canManageWorkspace(ws, user)) return jsonOut(404, { error: "ไม่พบพื้นที่ทำงานนี้" });
       const parent = path.dirname(ws.dir);
       const target = path.resolve(String(p || ""));
       if (target !== ws.dir && !target.startsWith(parent + path.sep)) return jsonOut(400, { error: "worktree ต้องอยู่ระดับเดียวกัน" });
+      if (!listWorktrees(ws.dir).some((w) => path.resolve(w.path) === target)) return jsonOut(404, { error: "ไม่พบ worktree นี้" });
       const r = runGit(["worktree", "remove", String(p || "")], ws.dir);
       if (r.code !== 0) return jsonOut(400, { error: (r.err || r.out).trim().slice(0, 300) });
       saveJson(WS_FILE, loadWorkspaces().filter((w) => w.dir !== target)); // ถอด workspace นั้นออก
@@ -569,6 +775,13 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(400, { "Content-Type": "application/json" });
         return res.end(JSON.stringify({ error: "Missing task" }));
       }
+      parsed._user = currentUser(req); // v17: run นี้ใช้ key/ค่าของผู้ใช้คนนี้ (null เมื่อ authOff)
+      const ws = authorizedWorkspace(parsed.ws, parsed._user);
+      if (!ws) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ error: "ไม่พบพื้นที่ทำงานนี้" }));
+      }
+      parsed.ws = ws.id;
       if (running) {
         if (queuedItem) { // กัน race: คิวถูกกินไประหว่างรอ body
           res.writeHead(429, { "Content-Type": "application/json" });
@@ -593,5 +806,5 @@ const server = http.createServer(async (req, res) => {
 
 // เปิดพอร์ตต่อเมื่อ key พร้อมเท่านั้น — ไม่จำเป็นต้องรับ request ตั้งแต่ key ยังไม่แน่
 keyReady
-  .then(() => server.listen(PORT, () => console.log(`Research Agent UI → http://localhost:${PORT}`)))
+  .then(() => server.listen(PORT, "127.0.0.1", () => console.log(`Research Agent UI → http://127.0.0.1:${PORT}`)))
   .catch(() => process.exit(1));

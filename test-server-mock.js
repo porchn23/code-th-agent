@@ -84,6 +84,22 @@ const FAKE_PAGES = {
   "https://example.com/x": "<html><body><h1>t</h1><p>c</p></body></html>",
   "https://example.com/y": "<html><body><h1>u</h1><p>d</p></body></html>",
 };
+// web_fetch uses DNS-pinned node:https requests; keep those deterministic and offline too.
+const EventEmitter = require("node:events");
+require("node:dns").promises.lookup = async () => [{ address: "93.184.216.34", family: 4 }];
+require("node:https").request = (url, _options, onResponse) => {
+  const req = new EventEmitter();
+  req.end = () => {
+    const response = new EventEmitter();
+    const page = FAKE_PAGES[String(url)] || "<html><body>mock page</body></html>";
+    response.statusCode = 200;
+    response.headers = { "content-type": "text/html" };
+    onResponse(response);
+    process.nextTick(() => { response.emit("data", Buffer.from(page)); response.emit("end"); });
+  };
+  req.destroy = (err) => { if (err) req.emit("error", err); };
+  return req;
+};
 
 // à¸šà¸±à¸™à¸—à¸¶à¸à¸—à¸¸à¸ request à¹„à¸› LLM (à¸™à¸±à¸š call + à¹€à¸à¹‡à¸š messages à¸‚à¸­à¸‡ request à¸–à¸±à¸”à¹„à¸›à¹„à¸§à¹‰à¸•à¸£à¸§à¸ˆà¸¥à¸³à¸”à¸±à¸š tool)
 const llmCalls = [];

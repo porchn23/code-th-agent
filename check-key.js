@@ -4,8 +4,7 @@
  *  1) valid (GET /api/v1/key ฟรี, ไม่กิน credit)
  *  2) web plugin `:online` ใช้ได้ (echo 502/ข้ามได้ — สำคัญที่ 402 กับ 2xx)
  * เลือกคีย์ดีสุดตามลำดับ: `:online` OK > เครดิตเหลือมากสุด
- * เขียนไฟล์ .openrouter_key ทับให้เหลือคีย์ที่เลือก "ตัวเดียว"
- * (กันเคสผู้ใช้วาง 2 คีย์ต่อกันในไฟล์เดียว → header พัง)
+ * แสดงคีย์ที่เลือกโดยไม่แก้ไฟล์ต้นฉบับ; ใช้ --write เมื่อต้องการเขียนคีย์ที่เลือกทับไฟล์
  * ไม่พิมพ์คีย์เต็มออกจอ = กัน leak ผ่าน log
  */
 const fs = require("node:fs");
@@ -62,9 +61,11 @@ async function onlineProbe(key) {
   const best = cands[0];
   console.log(`เลือกคีย์: ${mask(best.k)} (${best.onlineOK ? "`:online` ใช้ได้" : "เครดิตเหลือมากสุด — web plugin ยังไม่ได้"})`);
 
-  if (keys.length > 1 || keys[0] !== best.k) {
+  if (process.argv.includes("--write") && (keys.length > 1 || keys[0] !== best.k)) {
     fs.writeFileSync(keyFile, best.k + "\n");
     console.log("เขียน .openrouter_key ทับแล้ว (คีย์เดียว)");
+  } else if (keys.length > 1 || keys[0] !== best.k) {
+    console.log("ไฟล์ยังไม่ถูกแก้ — หากต้องการเขียนคีย์นี้ทับ ให้รัน node check-key.js --write");
   } else {
     console.log("ไฟล์คีย์อยู่ถูกของแล้ว — ไม่แตะต้อง");
   }

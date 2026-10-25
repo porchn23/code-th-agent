@@ -3,6 +3,12 @@
 > อัพเดต: 2026-10-25 · สถานะ: Engine v2 พร้อมใช้ · เป้าหมาย: "Compounding Agent" — ความฉลาดสะสมอยู่ใน **harness** ไม่ใช่โมเดล
 > หลักคิดเดิมของโปรเจ็คต์: zero-dependency Node.js (ไม่มี npm install) · token thrift (⛁) · model-agnostic (เปลี่ยนโมเดลจาก dropdown)
 
+### Security hardening (2026-10-25)
+- Server bind เฉพาะ `127.0.0.1`; workspace membership ตรวจทุก route และสมาชิกถูกจำกัดไว้ใต้โฟลเดอร์ส่วนตัว
+- File tools ปฏิเสธ symlink; `web_fetch` ตรวจ IP ทุก redirect และ pin DNS address ตอนเชื่อมต่อ
+- `run_command`/custom tools admin-only; คำสั่งยังทำงานด้วยสิทธิ์ OS ของ server จึงไม่ใช่ sandbox
+- `check-key.js` ไม่เขียนทับ `.openrouter_key` เว้นแต่เรียกด้วย `--write`
+
 ---
 
 ## 1. สิ่งที่ทำแล้ว (ปัจจุบัน — Engine v2)
@@ -11,7 +17,7 @@
 |---|---|
 | `research-agent.js` | agentLoop เดียวทั้ง orchestrator/sub-agent · retry 4 ครั้ง (401/403/402 = Fatal ไม่ retry) · streaming SSE (`callLLMStream` + `makeSSEAccumulator`, onDelta(null) = ล้างข้อความค้าง) · tool calls ขนาน (Promise.all) + dedupe cache ต่อ run (`↻ cached`) · trimToolResults (เก็บเต็ม 2 ชุดล่าสุด เก่าหั่น 300 chars) · token log ⛁ in/out/total (ใช้ usage จริงจาก stream ถ้าได้) |
 | Tools (11 ตัว) | web_search (OpenRouter `:online`) · web_fetch (http/https, stripHtml, fetchMaxChars) · get_datetime · calculator · js_eval (child_process sandbox 5s, tempdir ล้างตัวเอง) · file_read (โปรเจ็คต์เท่านั้น, แบน .openrouter_key/node_modules/.git) · file_write (เฉพาะ `reports/`) · memory_save/recall (`.agent_memory.json`, key≤50) · research_subagent (depth limit 1, งบ fetch 2600) |
-| `server.js` | PORT 8787 · key โหลดก่อน listen · GET /api/models (cache 10นาที) · POST /api/ask SSE: log/answer-delta/answer-reset/answer/error · validate {model,temp,maxSteps,history} · body history ≤8 ข้อความ × 1200 chars |
+| `server.js` | loopback 127.0.0.1:8787 · key โหลดก่อน listen · auth + workspace owner checks ทุก route · POST /api/ask SSE · validate {model,temp,maxSteps,history} · body history ≤8 ข้อความ × 1200 chars |
 | `ui.html` | sessions sidebar (30 อัน, ค้นหา/ลบ✕/rename dblclick/export .md) · streaming bubble + Stop ⏹ + copy · chips activity: ⚡steps 🔍 🌐 👥 ⛁tok ⚠errors · settings temp/maxSteps (persist localStorage `ra_set`) |
 | Memory | `.agent_memory.json` + preload "Known memory keys" ใน system prompt (orchestrator เท่านั้น) |
 | Tests | test-mock.js (multi-agent + error self-recovery) · test-server-mock.js (SSE stream mock + 200/429 guard) — ผ่านทั้งคู่ |
@@ -108,6 +114,16 @@ Implementation (ตามแผนที่ user อนุมัติ "ทำ�
 - [x] 🗂 Tree/file explorer: ต้นไม้ไฟล์ lazy-load + preview ไฟล์ (≤120KB) + path escape guard
 - [x] 🧪 Run panel: ผล run_command (cmd/exit/ms/output) ไหลผ่าน SSE event `run` → <details> ใน activity card
 - [x] per-run root ใน agent: ctx.root + rootOf() + tools รับ ctx + checkpoint rec.root (เทส test-workspace ยืนยันแก้ไฟล์ลง workspace จริง)
+
+## 10. ระบบสมาชิกจริง (v17) — ✅ (2026-10-25)
+- [x] 🧑‍💼 สมัครสมาชิกเอง: หน้าเดียวกับ login (3 โหมด setup/login/register) — บัญชีใหม่เป็น member, admin จัดการต่อที่ 👤
+- [x] เข้าสู่ระบบด้วยชื่อ **หรืออีเมล** + session persistent (`agent_sessions.json`) — restart server แล้วยังล็อกอินอยู่
+- [x] 👤 โปรไฟล์: แก้ชื่อ/อีเมล (session ตามทันที) + เปลี่ยนรหัสผ่าน (verify รหัสเดิมก่อน, scrypt re-hash)
+- [x] 🔑 key ส่วนตัวต่อสมาชิก: นำเข้า OpenRouter key ของตัวเองผ่าน UI (เก็บฝั่ง server ไม่เด้งกลับ — โชว์แค่ `…last4`); run ของใครใช้ key ของคนนั้น ไม่มี key → ใช้ key หลักของเครื่อง
+- [x] 📦 โปรเจคต่อสมาชิก: workspace มี `owner` — สมาชิกเห็น/ลบได้แค่ของตัวเอง (+ws-root ใช้ร่วม), admin เห็นทั้งหมด
+- [x] เทส: test-member.js 26 asserts (register/dup/profile/password/key mask/ownership filter/run ใช้ key ของตัวเอง)
+
+**เหลือใน idea bank:** 🔑 ลืมรหัสผ่าน (reset code / อีเมล — ผู้ใช้เลือกข้ามไว้ก่อน) · auto-compaction · hooks · permission matrix · git auto-commit boundary · `-p` headless · MCP client
 
 ---
 **ลำดับทำที่แนะนำ:** ~~วงจร 1 MVP → เทส mock → ให้ user ทดสอบจริง → วงจร 2 → Code Mode → วงจร 3~~ **ครบทั้ง 3 วงจรแล้ว (v14)** — วงจรต่อไป:

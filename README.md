@@ -14,11 +14,11 @@
 
 SPARK — ภารกิจของ agent ถูกฝังใน system prompt ทุก run: *"every run should make the NEXT run faster, cheaper, or smarter"*
 
-## ✨ ฟีเจอร์หลัก (v16)
+## ✨ ฟีเจอร์หลัก (v17)
 
-- **2 โหมด**: 🔎 Research (web_search + web_fetch + citation + freshness rule) / 💻 Code (`run_command` + `file_edit` exact-match + `file_grep` + **VERIFICATION GATE** — ห้ามบอกว่า "เสร็จ" โดยไม่รันจริง)
-- **🧑‍💼 ระบบสมาชิก (v16)**: บัญชี admin/member + scrypt password hash (node:crypto) + session cookie HttpOnly 7 วัน — เปิดครั้งแรกจะให้สร้างบัญชีเจ้าของก่อน; login พลาด 5 ครั้ง → ล็อก 30 วิ; admin เพิ่ม/ลบสมาชิกผ่านปุ่ม 👤 (`AGENT_NO_AUTH=1` ปิด — โหมด local trust)
-- **📦 พื้นที่ทำงาน / Workspaces (v16)**: เลือกโฟลเดอร์โปรเจคผ่านปุ่ม 📁 — ทุก tool (file_read/file_write/file_edit/file_grep/run_command) และ checkpoint ทำงานในพื้นที่ที่เลือก ไม่แตะ repo ตัว agent (`agent_workspaces.json`, สูงสุด 20)
+- **2 โหมด**: 🔎 Research (web_search + web_fetch + citation + freshness rule) / 💻 Code (`file_edit` exact-match + `file_grep`; `run_command` สำหรับ admin เท่านั้น)
+- **🧑‍💼 ระบบสมาชิกเต็ม (v17)**: สมัครสมาชิกเองได้หน้าเดียวกับ login — เข้าสู่ระบบด้วยชื่อหรืออีเมล, โปรไฟล์, เปลี่ยนรหัสผ่าน, key ส่วนตัวต่อคน; สมาชิกจัดการได้เฉพาะ workspace ใน `workspaces/<ชื่อสมาชิกที่เข้ารหัส URL>/` และ workspace ที่เป็นของตนเอง, admin เห็นทั้งหมด; ล็อกอินถาวร (`agent_sessions.json`); admin เพิ่ม/ลบสมาชิก (`AGENT_NO_AUTH=1` ปิด — โหมด trusted local)
+- **📦 พื้นที่ทำงาน / Workspaces (v16)**: admin เพิ่ม path ได้ตามต้องการ; สมาชิกเพิ่มได้เฉพาะใต้ `workspaces/<ชื่อที่เข้ารหัส URL>/` (ปรับรากด้วย `AGENT_WORKSPACE_ROOT`) ทุก file tool/checkpoint ทำงานในพื้นที่ที่เลือก (`agent_workspaces.json`, สูงสุด 20)
 - **🌿 Git worktrees (v16)**: ปุ่ม 🌿 สร้าง/ลบ worktree ต้นแบบ repo เพื่อทดลองแก้แยกกิ่ง — สร้างแล้ว auto-ลงทะเบียนเป็น workspace ให้เลย (ต้องเป็น git repo)
 - **🗂 ตัวสำรวจไฟล์ (v16)**: ปุ่ม 🗂 เปิด drawer โครงสร้างโปรเจคของพื้นที่ทำงาน (ต้นไม้ lazy-load, คลิกไฟล์ → preview ≤120KB) + 🧪 แผงผล run_command (exit code, ms, output) ใน activity card
 - **🔒 Checkpoints + ย้อนกลับได้ (Tier 1)**: ก่อนทุก `file_edit`/`file_write`/`run_command` จะ snapshot ไฟล์ที่จะโดนแก้ (งานระดับโปรเจกต์ ถึง 120 ไฟล์ย่อ ≤300KB/ไฟล์) → UI ปุ่ม 🔒 ดู **diff แยกสีเป็นบล็อก** + กด **ย้อนกลับ** คืนไฟล์ได้ทันที (หน้าต่าง 30 checkpoint ล่าสุด, `AGENT_NO_CHECKPOINTS=1` ปิด) — v16 เก็บ per-workspace แล้ว
@@ -29,7 +29,7 @@ SPARK — ภารกิจของ agent ถูกฝังใน system prom
 - **Streaming UI** (SSE): เห็นคำตอบไหลทีละคำ + activity chips (⚡ steps 🔍 🌐 👥 🛠 ⛁ tokens ⚠ errors) + เลข token จริงจาก API ทุก step
 - **Multi-agent**: `research_subagent` spawn ได้ (sub-agent ได้ context สดใหม่ + งบ token ต่ำกว่า) — ใช้เฉพาะเมื่อจำเป็นจริง
 - **Token thrift**: parallel tool calls + dedupe ซ้ำ + trim tool results เก่า (300 chars) + history cap การจัดการ token อย่างเข้มงวด
-- **Security**: js_eval รันผ่าน `node:vm` sandbox (บล็อก eval/Function/WASM escape), run_command บล็อก command อันตราย (rm -rf/format/del /s), ทุก output scrub secret อัตโนมัติ (`sk-or-***`), XSS-safe markdown renderer
+- **Security**: server รับเฉพาะ loopback (`127.0.0.1`); file access ปฏิเสธ symlink; `web_fetch` ปฏิเสธ private/reserved IP และตรวจ redirect พร้อม pin DNS; `run_command` และ custom tools ใช้ได้เฉพาะ admin และรันด้วยสิทธิ์ OS ของ server (ไม่ใช่ sandbox); XSS-safe markdown renderer
 - **Memory**: long-term memory tool (`memory_save`/`memory_recall` ลง `.agent_memory.json`) + session history (สนทนาต่อเนื่องใน UI)
 - **UI สไตล์ OpenCode**: sessions sidebar (ค้นหา/เปลี่ยนชื่อ/ลบ/export .md), model dropdown จาก OpenRouter, settings (temp/maxSteps/โหมด code), 📓 playbook badge, 🧱 custom tools badge, 🎯 evals badge
 - **🎯 Eval checklists (วงจร 3)**: งานที่สำเร็จแบบมีขั้นตอนถูกสังเคราะห์เป็น checklist ต่อชนิดงาน (1 LLM call, gate ≥3 steps + มี tool) — งานชนิดเดียวกันถัดไปได้ "จุดเริ่ม/สิ่งที่ต้องตรวจ" ฟรีใน system prompt (`--evals` ดูสรุป, `AGENT_NO_EVALS=1` ปิด)
@@ -41,10 +41,10 @@ SPARK — ภารกิจของ agent ถูกฝังใน system prom
 # 1. ใส่ OpenRouter API key
 #    สร้างไฟล์ .openrouter_key (ดูวิธีที่จอหลักตอนรันครั้งแรก)
 #    หรือตั้ง env OPENROUTER_API_KEY
-node check-key.js   # (optional) ตรวจ key ตัวไหนใช้ web search (:online) ได้
+node check-key.js   # (optional) ตรวจ key โดยไม่เขียนทับไฟล์; ใช้ --write เพื่อเขียนคีย์ที่เลือก
 
 # 2. เปิด web UI
-node server.js      # → http://localhost:8787
+node server.js      # → http://localhost:8787 (loopback เท่านั้น)
 
 # หรือใช้ CLI
 node research-agent.js "หัวข้อ research ที่อยากรู้"
@@ -52,7 +52,7 @@ node research-agent.js --playbook   # ดูกฎที่ agent เรีย�
 node research-agent.js --evals      # ดู checklist ที่ agent เก็บจากงานที่สำเร็จ
 ```
 
-## 🧪 Tests (offline, ไม่กิน API quota — ผ่าน 104 asserts ครบ 10 ไฟล์)
+## 🧪 Tests (ไม่มี LLM call; smoke test อ่าน public model list)
 
 ```bash
 node test-mock.js          # multi-agent + error self-recovery + sandbox escape + XSS (13)
@@ -65,6 +65,8 @@ node test-evals.js         # วงจร 3: eval สร้างจากงา
 node test-tier1.js         # Tier 1: AGENTS.md inject + plan mode + checkpoint/diff/restore (15)
 node test-auth.js          # v16: setup/login/rate-limit/session + worktree create/remove + tree escape guard (25)  ※ปิด dev server ก่อน
 node test-workspace.js     # v16: per-run root — file_edit/checkpoint/run cwd ลง workspace ที่เลือก (7)
+node test-member.js        # ระบบสมาชิก + workspace ownership + key ส่วนตัว (ต้องว่างพอร์ต 8787; test ไม่ปิด server ให้อัตโนมัติ)
+node test-security-guards.js # SSRF, redirect, IP ranges และ path traversal/symlink guards
 ```
 
 ## 🗂 โครงสร้าง
@@ -72,10 +74,11 @@ node test-workspace.js     # v16: per-run root — file_edit/checkpoint/run cwd 
 ```
 research-agent.js   ← หัวใจ: LLM + tools + loop + playbook + skill library + evals + Tier1 (ckpt/plan/AGENTS)
 server.js           ← web backend (SSE + task queue + checkpoints/plan/AGENTS routes, port 8787)
+security-guards.js  ← ตรวจ public IP/redirect และป้องกัน path หลุด workspace ผ่าน symlink
 ui.html             ← UI ทั้งหมด (single file)
 js-eval-runner.js   ← sandbox runner ของ js_eval (node:vm)
 agent-app.vbs       ← desktop launcher (ตรวจ server → auto บูต → เปิด Edge app window)
-test-*.js           ← 10 ชุดทดสอบ offline
+test-*.js           ← 12 ชุดทดสอบ regression
 docs/project-history.md  ← index เอกสาร + version history
 AGENT-ROADMAP.md    ← roadmap ของระบบ (วงจร 1-3 + Code Mode)
 ```

@@ -31,12 +31,12 @@ Else
   sh.Run "cmd /c start """" ""http://localhost:8787""", 1, False
 End If
 
-' ตรวจว่า server ตอบ 200 จริงไหม (ชี้ที่ /api/playbook — เบา ไม่ต้อง key)
+' ตรวจหน้า public เพื่อให้ probe ใช้ได้แม้ endpoint API ต้อง login
 Function ProbeOK()
   Dim http
   On Error Resume Next
   Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
-  http.open "GET", "http://localhost:8787/api/playbook", False
+  http.open "GET", "http://localhost:8787/", False
   http.send
   If Err.Number = 0 And http.status = 200 Then
     ProbeOK = True

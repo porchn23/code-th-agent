@@ -22,6 +22,8 @@ process.env.AGENT_EVENTS_FILE = require("node:path").join(require("node:os").tmp
 process.env.AGENT_PLAYBOOK_FILE = require("node:path").join(require("node:os").tmpdir(), "agent-pb-test.jsonl");
 process.env.AGENT_NO_EVALS = "1"; // Circuit 3 ปิดใน test เดิม — กัน eval-reflector ยิง LLM นอกสคริปต์
 process.env.AGENT_NO_CHECKPOINTS = "1"; // Tier 1 ปิดใน test เดิม — ไม่เขียนลง repo จริง
+// web_fetch ตรวจ DNS/SSRF ก่อนเรียก fetch; ให้ mock domain ชี้ไปยัง public IP จำลอง
+require("node:dns").promises.lookup = async () => [{ address: "93.184.216.34", family: 4 }];
 
 // ---------------------------------------------------------------
 // helper: à¸«à¹ˆà¸­ response à¸£à¸¹à¸›à¹à¸šà¸š OpenAI-compatible
@@ -92,6 +94,24 @@ const SANDBOX_SCRIPT = [
 // à¸œà¸¥à¸¥à¸±à¸žà¸˜à¹Œà¹€à¸§à¹‡à¸šà¸ªà¸¡à¸¡à¸¸à¸•à¸´à¸ªà¸³à¸«à¸£à¸±à¸š web_fetch
 const FAKE_PAGES = {
   "https://example.com/webgpu-chrome": "<html><head><title>WebGPU in Chrome</title></head><body><h1>Chrome WebGPU</h1><p>WebGPU ships on Windows and macOS since Chrome 113, Linux limited.</p></body></html>",
+};
+// fetchWithPublicRedirects uses pinned node:https requests; mock that transport as well.
+const EventEmitter = require("node:events");
+require("node:https").request = (url, _options, onResponse) => {
+  const req = new EventEmitter();
+  req.end = () => {
+    const response = new EventEmitter();
+    const page = FAKE_PAGES[String(url)];
+    response.statusCode = page ? 200 : 404;
+    response.headers = { "content-type": page ? "text/html; charset=utf-8" : "text/plain" };
+    onResponse(response);
+    process.nextTick(() => {
+      if (page) response.emit("data", Buffer.from(page));
+      response.emit("end");
+    });
+  };
+  req.destroy = (err) => { if (err) req.emit("error", err); };
+  return req;
 };
 
 // à¹€à¸à¹‡à¸šà¸—à¸¸à¸ request à¸—à¸µà¹ˆà¸¢à¸´à¸‡à¹€à¸‚à¹‰à¸² LLM à¹„à¸§à¹‰à¸•à¸£à¸§à¸ˆà¸¢à¹‰à¸­à¸™à¸«à¸¥à¸±à¸‡ (à¹ƒà¸Šà¹‰ assert à¸§à¹ˆà¸² error à¸–à¸¹à¸à¸«à¹ˆà¸­à¸à¸¥à¸±à¸šà¹€à¸‚à¹‰à¸² context)

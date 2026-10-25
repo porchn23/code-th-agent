@@ -16,6 +16,7 @@ const PLAYB = path.join(tmp, "agent_playbook.json");
 process.env.AGENT_EVENTS_FILE = EVENTS;
 process.env.AGENT_PLAYBOOK_FILE = PLAYB;
 process.env.AGENT_NO_EVALS = "1"; // Circuit 3 ปิดใน test เดิม — กัน eval-reflector ยิง LLM นอกสคริปต์
+process.env.AGENT_NO_CHECKPOINTS = "1"; // Tier 1 ปิดใน test เดิม — ไม่เขียนลง repo จริง
 process.env.OPENROUTER_API_KEY = "sk-or-v1-mock-test-key"; // ไม่ใช้จริงใน world mock
 process.env.OPENROUTER_MODEL = "nvidia/nemotron-3.5-super-vl:free";
 

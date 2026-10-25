@@ -89,7 +89,18 @@ Implementation (ตามแผนที่ user อนุมัติ "ทำ�
 | SWE-agent (2024) | ACI design: ปิดทางทำพลาดใน tool + compress view | arxiv.org/abs/2405.15793 |
 | OpenHands | event stream + condenser + microagents (keyword-trigger) | github.com/OpenHands/OpenHands |
 | Letta/MemGPT | แยก main context/external memory, self-editing | github.com/letta-ai/letta |
+| Claude Code/Cursor/Cline (2026 survey) | checkpoint/rollback, plan mode + approve, AGENTS.md rules, cost badge — มาตรฐานของ agent ที่ "ใช้งานจริงจูงใจ" | (web research v15) |
+
+## 8. ความสะดวกในการใช้งาน (Tier 1) — ✅ เสร็จรอบเดียวกับ v15 (2026-10-25)
+- [x] 🖥 Desktop shell zero-dep: `agent-app.vbs` (probe server → auto บูต → `msedge --app` หน้าต่างสแตนด์อโลน) + `Research Agent.lnk` บน Desktop
+- [x] 🔒 Checkpoints + diff review: snapshot อัตโนมัติก่อน file_edit/file_write/run_command → UI 🔒 ดู diff แยกสี + ย้อนกลับ (30 ก้อนล่าสุด, `AGENT_NO_CHECKPOINTS=1` ปิด)
+- [x] 📋 Plan mode: ปุ่ม 📋 → research-only → SSE การ์ดแผน → ปุ่มอนุมัติใน UI → `plan_done` ทีละขั้น
+- [x] 📝 AGENTS.md: กฎผู้ใช้บังคับก่อน อ่านทุก run — UI แก้ได้ผ่านปุ่ม 📝 (ไม่ต้องแตะไฟล์)
+- [x] ⛁ cost/context badge: token ที่ใช้ vs % context window ของโมเดลที่เลือก
+- [x] Crash guard: `uncaughtException`/`unhandledRejection` + double-end guard — LLM timeout/บั๊กเล็กไม่ปิด server อีก
+
+**เหลือใน idea bank (Tier 2):** auto-compaction ใกล้ context limit · hooks (ตรวจแบบ deterministic หลัง edit) · permission matrix allow/ask/deny · git auto-commit boundary · `-p` headless one-shot JSON mode · MCP client (stdio JSON-RPC)
 
 ---
-**ลำดับทำที่แนะนำ:** ~~วงจร 1 MVP → เทส mock → ให้ user ทดสอบจริง → วงจร 2 → Code Mode → วงจร 3~~ **ครบทั้ง 3 วงจรแล้ว (v14)** — งานถัดไปย้ายไป idea bank ด้านบน
+**ลำดับทำที่แนะนำ:** ~~วงจร 1 MVP → เทส mock → ให้ user ทดสอบจริง → วงจร 2 → Code Mode → วงจร 3~~ **ครบทั้ง 3 วงจรแล้ว (v14)** — วงจรต่อไป:
 **กติกากลาง:** ทุก feature ใหม่ต้องตอบได้ว่า "ช่วยโมเดลธรรมดาเก่งขึ้นได้อย่างไร และกิน token เพิ่มเท่าไหร่"

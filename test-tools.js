@@ -18,6 +18,7 @@ process.env.AGENT_PROJECT_DIR = tmp;
 process.env.AGENT_EVENTS_FILE = path.join(tmp, "events.jsonl");
 process.env.AGENT_PLAYBOOK_FILE = path.join(tmp, "playbook.json");
 process.env.AGENT_NO_EVALS = "1"; // Circuit 3 ปิดใน test เดิม — กัน eval-reflector ยิง LLM นอกสคริปต์
+process.env.AGENT_NO_CHECKPOINTS = "1"; // Tier 1 ปิดใน test เดิม — ไม่เขียนลง repo จริง
 process.env.AGENT_SKILLS_FILE = path.join(tmp, "skills", "index.json");
 
 const ra = require("./research-agent.js");

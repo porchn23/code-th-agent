@@ -14,9 +14,14 @@
 
 SPARK — ภารกิจของ agent ถูกฝังใน system prompt ทุก run: *"every run should make the NEXT run faster, cheaper, or smarter"*
 
-## ✨ ฟีเจอร์หลัก (v14)
+## ✨ ฟีเจอร์หลัก (v15)
 
 - **2 โหมด**: 🔎 Research (web_search + web_fetch + citation + freshness rule) / 💻 Code (`run_command` + `file_edit` exact-match + `file_grep` + **VERIFICATION GATE** — ห้ามบอกว่า "เสร็จ" โดยไม่รันจริง)
+- **🔒 Checkpoints + ย้อนกลับได้ (Tier 1)**: ก่อนทุก `file_edit`/`file_write`/`run_command` จะ snapshot ไฟล์ที่จะโดนแก้ (งานระดับโปรเจกต์ ถึง 120 ไฟล์ย่อ ≤300KB/ไฟล์) → UI ปุ่ม 🔒 ดู **diff แยกสีเป็นบล็อก** + กด **ย้อนกลับ** คืนไฟล์ได้ทันที (หน้าต่าง 30 checkpoint ล่าสุด, `AGENT_NO_CHECKPOINTS=1` ปิด)
+- **📋 Plan mode (Tier 1)**: สลับปุ่ม 📋 ใน UI → agent ทำแผน (research/อ่านอย่างเดียวห้ามแก้ไฟล์) → เสนอแผนผ่าน SSE เป็นการ์ด ✅/□ ในแชต → ผู้ใช้กด "อนุมัติแผน" → รูป agent ทำทีละขั้นกด `plan_done` เช็คขั้นที่เสร็จจริง
+- **📝 AGENTS.md (Tier 1)**: กฎของผู้ใช้ในไฟล์ `AGENTS.md` (อ่านทุก run, บังคับก่อน) — แก้ผ่านปุ่ม 📝 ใน UI ได้เลย (UTF-8, จำกัด 30k chars, `AGENT_AGENTS_FILE` เปลี่ยนตำแหน่งได้)
+- **⛁ ตัวชี้วัด token/บริบท (Tier 1)**: badge ใน UI แสดง token ที่ใช้รวม เทียบ % ของ context window โมเดลที่เลือก ทันทีที่ run จบ
+- **🖥 Desktop app (zero-dep)**: `agent-app.vbs` ดับเบิลคลิกเดียว → ยังไม่มี server จะบูตเองตามหลัง → รอ server พร้อม → เปิด **msedge --app** เป็นหน้าต่างสแตนด์อโลนไม่มี address bar (`Research Agent.lnk` บน Desktop สร้างให้แล้ว ไม่ใช้ npm/Electron ใด ๆ)
 - **Streaming UI** (SSE): เห็นคำตอบไหลทีละคำ + activity chips (⚡ steps 🔍 🌐 👥 🛠 ⛁ tokens ⚠ errors) + เลข token จริงจาก API ทุก step
 - **Multi-agent**: `research_subagent` spawn ได้ (sub-agent ได้ context สดใหม่ + งบ token ต่ำกว่า) — ใช้เฉพาะเมื่อจำเป็นจริง
 - **Token thrift**: parallel tool calls + dedupe ซ้ำ + trim tool results เก่า (300 chars) + history cap การจัดการ token อย่างเข้มงวด
@@ -43,7 +48,7 @@ node research-agent.js --playbook   # ดูกฎที่ agent เรีย�
 node research-agent.js --evals      # ดู checklist ที่ agent เก็บจากงานที่สำเร็จ
 ```
 
-## 🧪 Tests (offline, ไม่กิน API quota — ผ่าน 74 asserts ครบ 7 ไฟล์)
+## 🧪 Tests (offline, ไม่กิน API quota — ผ่าน 89 asserts ครบ 8 ไฟล์)
 
 ```bash
 node test-mock.js          # multi-agent + error self-recovery + sandbox escape + XSS (13)
@@ -53,16 +58,18 @@ node test-playbook.js      # event log + reflector + dedupe + prompt injection (
 node test-server-mock.js   # SSE streaming + queue (200/200/429) + Stop + tool order (8)  ※ปิด dev server ก่อน
 node test-smoke.js         # จริง: boot + route + validation (5)
 node test-evals.js         # วงจร 3: eval สร้างจากงานสำเร็จ + dedupe bump + inject hints + off-switch (8)
+node test-tier1.js         # Tier 1: AGENTS.md inject + plan mode + checkpoint/diff/restore (15)
 ```
 
 ## 🗂 โครงสร้าง
 
 ```
-research-agent.js   ← หัวใจ: LLM + tools + loop + playbook + skill library + evals
-server.js           ← web backend (SSE + task queue, port 8787)
+research-agent.js   ← หัวใจ: LLM + tools + loop + playbook + skill library + evals + Tier1 (ckpt/plan/AGENTS)
+server.js           ← web backend (SSE + task queue + checkpoints/plan/AGENTS routes, port 8787)
 ui.html             ← UI ทั้งหมด (single file)
 js-eval-runner.js   ← sandbox runner ของ js_eval (node:vm)
-test-*.js           ← 7 ชุดทดสอบ offline
+agent-app.vbs       ← desktop launcher (ตรวจ server → auto บูต → เปิด Edge app window)
+test-*.js           ← 8 ชุดทดสอบ offline
 docs/project-history.md  ← index เอกสาร + version history
 AGENT-ROADMAP.md    ← roadmap ของระบบ (วงจร 1-3 + Code Mode)
 ```

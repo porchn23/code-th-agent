@@ -9,6 +9,9 @@
 agent-events.jsonl
 agent_playbook.json
 agent_evals.json
+agent_plan.json
+agent_checkpoints/
+agent_checkpoints.json
 
 # ---- generated output ----
 reports/

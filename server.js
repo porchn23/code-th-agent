@@ -13,11 +13,16 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
-const { CONFIG, agentLoop, getApiKey, playbookSummary, evalSummary, getTools, loadSkills } = require("./research-agent.js");
+const { CONFIG, agentLoop, getApiKey, playbookSummary, evalSummary, getTools, loadSkills, loadAgentsRules, AGENTS_FILE, loadPlan, loadCkpts, restoreCheckpoint, diffCheckpoint } = require("./research-agent.js");
 
 const PORT = 8787;
 const ANSI_RE = /\x1b\[[0-9;]*m/g; // ลบสี ANSI ก่อนส่งไปหน้าเว็บ
 const DEFAULT_MODEL = CONFIG.model; // เก็บ default ไว้ restore หลังแต่ละ run
+
+// เกราะกัน server ดับกลางทาง: LLM timeout/retry หมด หรือ bug เล็ก ๆ ไม่ควรปิดตัวเอง
+// (local tool — อยู่ต่อ + พิมพ์เหตุผลให้เห็น ดีกว่าตายเงียบ ๆ)
+process.on("uncaughtException", (e) => console.error("[uncaughtException]", e?.stack || e?.message || e));
+process.on("unhandledRejection", (e) => console.error("[unhandledRejection]", (e && (e.stack || e.message)) || e));
 
 // ---- รายการ models จาก OpenRouter (public endpoint, ไม่ต้อง key) + cache 10 นาที ----
 let modelCache = null;
@@ -48,6 +53,18 @@ let queuedItem = null; // คิวรอลึก 1 — แทนการ 429 
 async function runTask(parsed, res) {
   running = true;
   const { task, model, temp, maxSteps, history, mode } = parsed;
+  // Tier 1 plan mode: planMode = รอบวางแผน (ห้ามลงมือ) / approvedPlan = แผนที่ผู้ใช้กดอนุมัติแล้ว
+  // sanitize approvedPlan: ยอมรับเฉพาะรูป {title, steps:[{text,done}]} ที่กลั่นแล้ว
+  let planTL = !!parsed.planMode;
+  let approvedPlan = null;
+  if (parsed.approvedPlan && Array.isArray(parsed.approvedPlan.steps)) {
+    const steps = parsed.approvedPlan.steps
+      .filter((s) => s && typeof s.text === "string")
+      .slice(0, 10)
+      .map((s) => ({ text: s.text.slice(0, 200), done: !!s.done }));
+    if (steps.length) approvedPlan = { title: String(parsed.approvedPlan.title || "").slice(0, 120), steps };
+    planTL = false; // แผนผ่านการอนุมัติแล้ว — รอบนี้ลงมือทำจริง
+  }
   const modeN = mode === "code" ? "code" : "research"; // กันค่าที่ไม่รู้จัก
   // งานจากคิว: header ส่งไปแล้วตอนส่ง event "queued" — ห้าม writeHead ซ้ำ (throw = ค้าง running)
   if (!res.headersSent) {
@@ -92,14 +109,20 @@ async function runTask(parsed, res) {
       temp: useTemp,
       maxSteps: useSteps != null ? useSteps : (modeN === "code" ? 24 : undefined),
       mode: modeN, // "research" (default) | "code" (เพิ่ม run_command/file_edit/file_grep + verification gate)
-      tools: getTools(modeN),
+      tools: getTools(modeN, { save: planTL, done: !!approvedPlan }),
       history: cleanHistory,
       signal: controller.signal,
+      planMode: planTL,
+      approvedPlan,
       // log ของ agent → ส่งไปหน้าเว็บสด ๆ (ไม่ patch console.log แบบ global —
       // ถ้า patch แล้ว request ที่ถูก abort จะมา restore ทับ patch ของ request ที่วิ่งอยู่)
       onLog: (line) => send("log", line.replace(ANSI_RE, "").trim()),
       // streaming คำตอบ: delta สด → UI (null = ล้างเมื่อโมเดลสลับไป tool call)
       onDelta: (t) => (t === null ? send("answer-reset") : send("answer-delta", t)),
+      // Tier 1 plan mode: save_plan/plan_done → event "plan" สด ๆ ไปหน้าเว็บ (การ์ดแผน + ปุ่มอนุมัติ)
+      onPlan: (p) => {
+        try { send("plan", { id: p.id, ts: p.ts, title: p.title, steps: p.steps }); } catch {}
+      },
     });
     send("answer", answer);
   } catch (e) {
@@ -108,7 +131,7 @@ async function runTask(parsed, res) {
   } finally {
     CONFIG.model = DEFAULT_MODEL; // restore — run ถัดไปกลับไปใช้ default
     running = false;
-    res.end();
+    try { if (!res.writableEnded) res.end(); } catch {}
     // คิว: มีงานรออยู่ (และ client ยังต่ออยู่) → เริ่มงานนั้นต่อทันที
     const nxt = queuedItem;
     if (nxt && !nxt.res.writableEnded) { queuedItem = null; try { await runTask(nxt.parsed, nxt.res); } catch { /* ห้ามพังหลัง res.end */ } }
@@ -150,6 +173,68 @@ const server = http.createServer(async (req, res) => {  // ---- หน้าเ�
   if (req.method === "GET" && req.url === "/api/evals") {
     res.writeHead(200, { "Content-Type": "application/json" });
     return res.end(JSON.stringify(evalSummary()));
+  }
+
+  // ---- Tier 1: AGENTS.md (กฎของผู้ใช้), แผน, checkpoints ----
+  if (req.method === "GET" && req.url === "/api/agents") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ content: loadAgentsRules() }));
+  }
+  if (req.method === "POST" && req.url === "/api/agents") {
+    let body = "";
+    req.on("data", (c) => { body += c; if (body.length > 40000) req.destroy(); });
+    req.on("end", () => {
+      try {
+        const { content } = JSON.parse(body);
+        if (typeof content !== "string") throw new Error("content required");
+        fs.writeFileSync(AGENTS_FILE, content.slice(0, 30000), "utf8"); // cap ~7500 tok
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: true, bytes: content.slice(0, 30000).length }));
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+  if (req.method === "GET" && req.url === "/api/plan") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify(loadPlan()));
+  }
+  if (req.method === "GET" && req.url === "/api/checkpoints") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({
+      checkpoints: loadCkpts().map(({ id, ts, kind, runId, files }) => ({
+        id, ts, kind, runId,
+        files: files.map((f) => f.rel),
+      })),
+    }));
+  }
+  if (req.method === "GET" && req.url.startsWith("/api/checkpoints/diff?id=")) {
+    try {
+      const id = decodeURIComponent(req.url.split("id=")[1] || "");
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(diffCheckpoint(id)));
+    } catch (e) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+  if (req.method === "POST" && req.url === "/api/checkpoints/restore") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      try {
+        const { id } = JSON.parse(body);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ restored: restoreCheckpoint(String(id)) }));
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
   }
 
   // ---- API: ถาม agent (stream) + คิวรอลึก 1 ----

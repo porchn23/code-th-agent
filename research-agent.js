@@ -280,11 +280,13 @@ const TOOL_CREATE = {
     },
   },
 };
-const getTools = (mode) => {
+const getTools = (mode, planExtra = {}) => {
   const base = mode === "code" ? [...TOOL_SPECS, ...CODE_TOOLS] : [...TOOL_SPECS];
   return [
     ...base,
     TOOL_CREATE,
+    ...(planExtra.save ? [PLAN_SPECS[0]] : []),
+    ...(planExtra.done ? [PLAN_SPECS[1]] : []),
     ...loadSkills().map((s) => ({
       type: "function",
       function: {
@@ -942,6 +944,214 @@ function evalSummary() {
   };
 }
 
+// ---------------------------------------------------------------
+// Tier 1 — ความสะดวกของผู้ใช้: 📝 AGENTS.md rules / 📋 Plan mode / 🔒 Checkpoints
+// (เพิ่มเติมจาก 3 วงจรของ agent เอง — ส่วนนี้คือ "ราวกันตก" ของผู้ใช้)
+// ---------------------------------------------------------------
+const AGENTS_FILE = process.env.AGENT_AGENTS_FILE || path.join(__dirname, "AGENTS.md");
+
+// กฎที่ "ผู้ใช้เขียนเอง" (ต่างจาก playbook ที่ agent เรียนเอง) — inject ทุก run depth 0
+function loadAgentsRules() {
+  try {
+    const t = fs.readFileSync(AGENTS_FILE, "utf8").trim();
+    return t ? t.slice(0, 8000) : "";
+  } catch { return ""; }
+}
+
+// ---- Plan mode: agent วางแผนก่อน → ผู้ใช้กดอนุมัติในแชต → รันตามแผน ----
+const PLAN_FILE = process.env.AGENT_PLAN_FILE || path.join(__dirname, "agent_plan.json");
+const PLAN_RULES = `
+== PLAN MODE ==
+- งานนี้อยู่ในโหมดวางแผน: research/อ่านไฟล์ได้เท่านั้น ห้าม run_command/file_edit/file_write
+- เมื่อเข้าใจงานพอแล้ว ให้เรียก tool save_plan ครั้งเดียวด้วย {title, steps:[...]} (3-8 steps รูปธรรม ตรวจสอบได้)
+- ห้ามทำงานตามแผนเอง — จบคำตอบด้วยข้อความสั้นว่าแผนพร้อมอนุมัติแล้ว (ผู้ใช้จะกดปุ่มอนุมัติในหน้าเว็บ)`;
+function loadPlan() {
+  try {
+    const p = JSON.parse(fs.readFileSync(PLAN_FILE, "utf8"));
+    return p && Array.isArray(p.steps) ? p : null;
+  } catch { return null; }
+}
+function savePlan({ title, steps } = {}, ctx) {
+  const list = (Array.isArray(steps) ? steps : []).map((s) => String(s).trim()).filter(Boolean).slice(0, 10)
+    .map((text) => ({ text: text.slice(0, 200), done: false }));
+  if (list.length < 2) throw new Error("plan needs at least 2 steps");
+  const plan = { id: "p-" + Date.now().toString(36), ts: Date.now(), title: String(title || "").trim().slice(0, 120) || "แผนงาน", steps: list };
+  fs.mkdirSync(path.dirname(PLAN_FILE), { recursive: true });
+  fs.writeFileSync(PLAN_FILE, JSON.stringify(plan, null, 2));
+  try { if (ctx && ctx.onPlan) ctx.onPlan(plan); } catch {}
+  return plan;
+}
+function planMarkDone({ step } = {}, ctx) {
+  const n = Number(step);
+  const plan = loadPlan();
+  if (!plan) throw new Error("No approved plan to update");
+  const s = plan.steps[n - 1];
+  if (!s) throw new Error(`step ${n} doesn't exist (plan has ${plan.steps.length} steps)`);
+  s.done = true;
+  fs.writeFileSync(PLAN_FILE, JSON.stringify(plan, null, 2));
+  try { if (ctx && ctx.onPlan) ctx.onPlan(plan); } catch {}
+  return `✓ step ${n} marked done: ${s.text.slice(0, 80)}`;
+}
+// spec ของ tool ฝั่งแผน — ต่อท้าย tool list เฉพาะเมื่อ planMode (save_plan) / รันตามแผนอนุมัติ (plan_done)
+const PLAN_SPECS = [
+  {
+    type: "function",
+    function: {
+      name: "save_plan",
+      description: "PLAN MODE: record the execution plan after finishing your research. Call exactly once, then end with a short 'plan is ready for approval' message. Do NOT execute anything.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short plan title" },
+          steps: { type: "array", items: { type: "string" }, description: "Ordered steps (3-8), each concrete and checkable" },
+        },
+        required: ["title", "steps"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "plan_done",
+      description: "Mark one step of the APPROVED plan as complete. Call right after finishing that step so the user sees live progress.",
+      parameters: {
+        type: "object",
+        properties: { step: { type: "integer", description: "Step number, 1-based" } },
+        required: ["step"],
+      },
+    },
+  },
+];
+
+// ---- Checkpoints: snapshot ก่อนแตะไฟล์ → ดู diff / ย้อนกลับได้ (เหมือน /rewind ของ Claude) ----
+const CKPT_DIR = process.env.AGENT_CHECKPOINT_DIR || path.join(__dirname, "agent_checkpoints");
+const CKPT_FILE = process.env.AGENT_CHECKPOINT_FILE || path.join(__dirname, "agent_checkpoints.json");
+const CKPT_CAP = 30;
+const CKPT_SKIP = /(^|[\\\/])(node_modules|\.git|agent_checkpoints|tools|skills|reports)([\\\/]|$)|(^|[\\\/])(agent_[\w-]+\.(json|jsonl)|\.agent_memory\.json|\.openrouter_key|agent-app\.vbs)$/i;
+
+function loadCkpts() {
+  try { const l = JSON.parse(fs.readFileSync(CKPT_FILE, "utf8")); return Array.isArray(l) ? l : []; } catch { return []; }
+}
+function saveCkpts(list) {
+  fs.mkdirSync(path.dirname(CKPT_FILE), { recursive: true });
+  fs.writeFileSync(CKPT_FILE, JSON.stringify(list, null, 2));
+}
+function addBackup(abs, rec) {
+  try {
+    const buf = fs.readFileSync(abs);
+    if (buf.length > 300000) return; // กันไฟล์ใหญ่ผิดปกติเต็มดิสก์
+    const dir = path.join(CKPT_DIR, rec.id);
+    fs.mkdirSync(dir, { recursive: true });
+    const bk = path.join(dir, "f" + rec.files.length + ".bak");
+    fs.writeFileSync(bk, buf);
+    rec.files.push({ rel: path.relative(PROJECT_ROOT, abs).replace(/\\/g, "/"), backup: bk });
+  } catch { /* snapshot ต้องไม่มีสิทธิ์ทำ run พัง */ }
+}
+// snapshot ไฟล์เดียว (ก่อน file_edit/file_write)
+function snapshotOne(abs, kind, ctx) {
+  const rec = { id: "ck-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), runId: ctx.runId, kind, files: [] };
+  addBackup(abs, rec);
+  return rec.files.length ? rec : null;
+}
+// snapshot ทั้งโปรเจ็กต์ (ก่อน run_command — ไม่รู้ล่วงหน้าว่าคำสั่งจะแก้อะไร)
+function snapshotProject(ctx) {
+  const rec = { id: "ck-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), runId: ctx.runId, kind: "run", files: [] };
+  try {
+    const walk = (dir) => {
+      for (const name of fs.readdirSync(dir)) {
+        if (rec.files.length >= 120) return;
+        const abs = path.join(dir, name);
+        const relw = path.relative(PROJECT_ROOT, abs);
+        if (CKPT_SKIP.test(relw)) continue;
+        let st = null;
+        try { st = fs.statSync(abs); } catch { continue; }
+        if (st.isDirectory()) { walk(abs); continue; }
+        if (TEXT_EXT.test(abs) && st.size <= 300000) addBackup(abs, rec);
+      }
+    };
+    walk(PROJECT_ROOT);
+  } catch { /* ไม่มีข้อกังวลเรื่อง fail ที่นี่ */ }
+  return rec.files.length ? rec : null;
+}
+// hook ก่อนรัน tool ที่แก้ไฟล์ — sync เสมอ เกิด error ก็ต้องไม่พัง run
+function checkpointBefore(name, args, ctx) {
+  try {
+    if (process.env.AGENT_NO_CHECKPOINTS === "1" || ctx.depth !== 0) return;
+    let rec = null;
+    if ((name === "file_edit" || name === "file_write") && args && args.path)
+      rec = snapshotOne(safeProjectPath(String(args.path)), "file", ctx);
+    else if (name === "run_command") rec = snapshotProject(ctx);
+    if (!rec) return;
+    const list = loadCkpts();
+    list.unshift(rec);
+    const dropped = list.length > CKPT_CAP ? list.splice(CKPT_CAP) : [];
+    saveCkpts(list);
+    for (const d of dropped) { try { fs.rmSync(path.join(CKPT_DIR, d.id), { recursive: true, force: true }); } catch {} }
+    ctx.log(C.dim, `  🔒 checkpoint (${rec.files.length} file${rec.files.length > 1 ? "s" : ""}) ก่อน ${name}`);
+  } catch { /* ไม่มีข้อกังวลเรื่อง snapshot */ }
+}
+// diff แบบเรียบง่าย (LCS + ยุบบล็อกบรรทัดเดิมยาว ๆ) → [{t:'same'|'add'|'del', text}]
+function diffText(aText, bText) {
+  const a = String(aText || "").split("\n"), b = String(bText || "").split("\n");
+  const N = 600;
+  if (a.length > N || b.length > N) {
+    let p = 0;
+    while (p < a.length && p < b.length && a[p] === b[p]) p++;
+    let s = 0;
+    while (s < Math.min(a.length, b.length) - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+    return [{ t: "same", text: `≈${p} บรรทัดต้นเหมือนกัน` }, { t: "mod", text: `เปลี่ยน ~${a.length - p - s} → ${b.length - p - s} บรรทัด (ไฟล์ใหญ่เกิน diff แบบละเอียด)` }];
+  }
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+  for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--)
+    dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const out = [];
+  let i = 0, j = 0;
+  while (i < m && j < n) {
+    if (a[i] === b[j]) { out.push({ t: "same", text: a[i] }); i++; j++; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) out.push({ t: "del", text: a[i++] });
+    else out.push({ t: "add", text: b[j++] });
+  }
+  while (i < m) out.push({ t: "del", text: a[i++] });
+  while (j < n) out.push({ t: "add", text: b[j++] });
+  // ยุบบล็อก "same" ที่ยาวเกิน 6 บรรทัด (เหลือ 2 แรก + หมายเหตุ + 2 ท้าย)
+  const c = [];
+  for (let k = 0; k < out.length; k++) {
+    if (out[k].t !== "same") { c.push(out[k]); continue; }
+    let e = k;
+    while (e + 1 < out.length && out[e + 1].t === "same") e++;
+    if (e - k + 1 > 6) {
+      c.push(out[k], out[k + 1], { t: "same", text: `… (อีก ${e - k - 3} บรรทัดเหมือนเดิม) …` }, out[e - 1], out[e]);
+    } else for (let x = k; x <= e; x++) c.push(out[x]);
+    k = e;
+  }
+  return c.slice(0, 500);
+}
+function diffCheckpoint(id) {
+  const rec = loadCkpts().find((r) => r.id === id);
+  if (!rec) throw new Error("checkpoint not found: " + id);
+  return rec.files.map(({ rel, backup }) => {
+    const before = fs.existsSync(backup) ? fs.readFileSync(backup, "utf8") : "";
+    const abs = path.resolve(PROJECT_ROOT, rel);
+    const after = fs.existsSync(abs) ? fs.readFileSync(abs, "utf8") : "";
+    return { rel, diff: diffText(before, after) };
+  });
+}
+function restoreCheckpoint(id) {
+  const rec = loadCkpts().find((r) => r.id === id);
+  if (!rec) throw new Error("checkpoint not found: " + id);
+  const restored = [];
+  for (const { rel, backup } of rec.files) {
+    if (!fs.existsSync(backup)) continue;
+    const abs = path.resolve(PROJECT_ROOT, rel);
+    if (!abs.startsWith(PROJECT_ROOT + path.sep)) continue; // กัน path escape
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.copyFileSync(backup, abs);
+    restored.push(rel);
+  }
+  return restored;
+}
+
 function printEvals() {
   const s = evalSummary();
   console.log(`🎯 Evals — ${s.evals.length} checklists (ok runs: ${s.runs.ok}, avg ~${s.runs.avgTok} tok/run)\n`);
@@ -1199,6 +1409,12 @@ async function runTool(name, args, ctx) {
   if (name === "file_grep") return toolFileGrep(args);
   if (name === "memory_save") return toolMemorySave(args);
   if (name === "memory_recall") return toolMemoryRecall(args);
+  if (name === "save_plan") {
+    const p = savePlan(args, ctx);
+    ctx.log(C.dim, `  📋 plan saved (${p.steps.length} steps) → รอผู้ใช้อนุมัติ`);
+    return `Plan "${p.title}" saved with ${p.steps.length} steps. End now with ONE short message saying the plan is ready and waiting for the user to approve it in the web UI.`;
+  }
+  if (name === "plan_done") return planMarkDone(args, ctx);
   // Circuit 2: สร้าง tool ใหม่ → ถ้าผ่านการทดสอบ = inject spec เข้า tool list ของ run นี้ทันที
   if (name === "tool_create") {
     const r = await toolToolCreate(args);
@@ -1239,6 +1455,7 @@ async function agentLoopCore(userTask, {
   depth = 0, tools, maxSteps = CONFIG.maxSteps,
   noBanner = false, temp = null, history = [], onDelta = null,
   onLog = null, signal = null, mode = "research",
+  planMode = false, approvedPlan = null, onPlan = null,
 } = {}) {
   const tools2 = tools ?? getTools(mode); // โหมด code = เพิ่ม run_command/file_edit/file_grep
   const tag = depth > 0 ? `${C.dim}[sub d${depth}]${C.reset} ` : "";
@@ -1259,6 +1476,7 @@ async function agentLoopCore(userTask, {
     errors: [], tools: {}, stepsUsed: 0, outcome: null, t0: Date.now(),
     // Circuit 2: อ้างอิงชุด tool ของ run นี้ (tool_create สำเร็จ = push spec เข้านี่แบบ live)
     toolsRef: tools2,
+    onPlan, // Tier 1 plan mode: save_plan/plan_done → callback (server ส่ง SSE ไป UI)
   };
   LAST_CTX = ctx; // ให้ wrapper (agentLoop) เรียนรู้จาก ctx ของรันนี้ได้แม้ throw กลางทาง
 
@@ -1280,6 +1498,22 @@ async function agentLoopCore(userTask, {
     if (ev) {
       system += ev;
       ctx.log(C.dim, `🎯 eval hints injected (~${estTok(ev)} tok)`);
+    }
+    const ag = loadAgentsRules(); // Tier 1 — กฎของผู้ใช้จาก AGENTS.md (inject ทุก run)
+    if (ag) {
+      system += `\n\n# Project rules (AGENTS.md — กฎของผู้ใช้ บังคับก่อนเสมอ)\n${ag}`;
+      ctx.log(C.dim, `📝 AGENTS.md injected (~${estTok(ag)} tok)`);
+    }
+    if (planMode) {
+      system += PLAN_RULES;
+      ctx.log(C.dim, `📋 plan mode เปิด — วางแผนก่อน ห้ามลงมือแก้ไข`);
+    }
+    if (approvedPlan) {
+      const steps = (approvedPlan.steps || [])
+        .map((s, i) => `- [${s.done ? "x" : " "}] ${i + 1}. ${s.text}`)
+        .join("\n");
+      system += `\n\n# Approved plan (ผู้ใช้อนุมัติแล้ว) — ทำตามขั้นตอน ตามลำดับ\nและเรียก plan_done {step: N} ทันทีที่ขั้นใดเสร็จ เพื่อให้หน้าเว็บโชว์ progress สด\n${steps}`;
+      ctx.log(C.dim, `📋 approved plan injected (${(approvedPlan.steps || []).length} steps)`);
     }
   }
 
@@ -1411,6 +1645,7 @@ async function runToolCalls(toolCalls, ctx) {
     }
     let result;
     try {
+      checkpointBefore(tc.function.name, args, ctx); // Tier 1: snapshot ก่อนแตะไฟล์ (ห้ามทำ run พัง — จับ error ข้างในแล้ว)
       result = await runTool(tc.function.name, args, ctx);
     } catch (err) {
       // Error Handling: ไม่ crash — ห่อ error กลับเข้า context
@@ -1454,4 +1689,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { CONFIG, agentLoop, getApiKey, log, C, truncate, loadPlaybookForTask, addRule, loadPlaybook, playbookSummary, reflectOnRun, learnFromRun, getTools, CODE_TOOLS, SUBAGENT_TOOLS, loadSkills, loadEvalsForTask, addEval, loadEvals, evalSummary, whenLearned: () => LAST_LEARN };
+module.exports = { CONFIG, agentLoop, getApiKey, log, C, truncate, loadPlaybookForTask, addRule, loadPlaybook, playbookSummary, reflectOnRun, learnFromRun, getTools, CODE_TOOLS, SUBAGENT_TOOLS, loadSkills, loadEvalsForTask, addEval, loadEvals, evalSummary, loadAgentsRules, AGENTS_FILE, PLAN_FILE, loadPlan, getToolsPlanSpec: PLAN_SPECS, loadCkpts, checkpointBefore, restoreCheckpoint, diffCheckpoint, diffText, whenLearned: () => LAST_LEARN };

@@ -58,6 +58,11 @@
   .pb-pop .r .t { color:#d29922; font-size:11px; }
   .pb-pop .r .u { color:#8b98a5; font-size:11px; }
   .pb-pop .r.muted { color:#8b98a5; font-style:italic; }
+  /* Tier 1: การ์ดแผน (plan mode) */
+  .plan-card { background:#0d1117; border:1px solid #2b333d; border-radius:12px; padding:12px 16px; margin-top:6px; font-size:13px; }
+  .plan-card ol { margin:8px 0 0 18px; padding:0; }
+  .plan-card li { margin:4px 0; line-height:1.5; }
+  .plan-card li.pd { color:#8b98a5; text-decoration:line-through; }
 
   #chat { flex:1; overflow-y:auto; padding:20px 22px 10px; max-width:980px; width:100%; margin:0 auto; }
   .msg-user { display:flex; justify-content:flex-end; margin:14px 0; }
@@ -264,6 +269,25 @@ function entryNode(e) {
     d.innerHTML = '<div class="b">' + esc(e.text) + "</div>";
     return d;
   }
+  if (e.type === "plan") { // Tier 1: การ์ดแผนงาน (plan mode) — ปุ่มอนุมัติ → รันตามแผน + update สดตาม plan_done
+    const p = e.plan || { title: "แผนงาน", steps: [] };
+    const doneN = p.steps.filter((x) => x.done).length;
+    const d = document.createElement("div"); d.className = "msg-agent";
+    d.innerHTML = '<div class="name">📋 แผนงาน' + (doneN ? " · " + doneN + "/" + p.steps.length + " เสร็จ" : "") + '</div>' +
+      '<div class="plan-card"><b>' + esc(p.title || "แผนงาน") + "</b><ol>" +
+      p.steps.map((x) => '<li class="' + (x.done ? "pd" : "") + '">' + (x.done ? "✅ " : "□ ") + esc(x.text) + "</li>").join("") +
+      "</ol>" +
+      (e.approved
+        ? '<div class="muted" style="margin-top:6px">✓ อนุมัติแล้ว — agent ทำตามแผนอยู่</div>'
+        : '<button class="cp plan-approve" style="float:none;margin-top:8px;width:100%">✅ อนุมัติแผน &amp; เริ่มทำตามแผน</button>') +
+      "</div>";
+    const btn = d.querySelector(".plan-approve");
+    if (btn) btn.onclick = () => {
+      e.approved = true; updateEntry(e); saveSessions();
+      run({ task: "ผู้ใช้อนุมัติแผนแล้ว — ทำงานตามแผนนี้ทั้งหมดตามลำดับ: " + (p.title || ""), approvedPlan: p });
+    };
+    return d;
+  }
   if (e.type === "activity") {
     if (e.lines && !e.counts) e.lines.forEach((l) => tallyLine(e, l)); // บทสนทนาเก่า
     const c = e.counts || {};
@@ -437,6 +461,129 @@ async function refreshEv() {
 }
 refreshEv();
 
+/* ================= Tier 1: 📋 plan toggle · ⛁ ctx badge · 📝 AGENTS.md · 🔒 checkpoints ================= */
+let planOn = false;
+const planBtn = document.createElement("span");
+planBtn.className = "ctl pb-badge";
+planBtn.title = "โหมดวางแผน: agent เสนอแผนก่อน → คุณกดอนุมัติในแชต → agent ลงมือตามแผน";
+planBtn.textContent = "📋 แผน: ปิด";
+planBtn.onclick = () => { planOn = !planOn; planBtn.textContent = planOn ? "📋 แผน: เปิด" : "📋 แผน: ปิด"; };
+
+const ctxBadge = document.createElement("span");
+ctxBadge.className = "ctl pb-badge";
+ctxBadge.textContent = "⛁ —";
+ctxBadge.title = "token ของรันล่าสุด (อัปเดตหลังแต่ละรัน)";
+
+const agBadge = document.createElement("span");
+agBadge.className = "ctl pb-badge";
+agBadge.textContent = "📝";
+agBadge.title = "AGENTS.md — กฎของโปรเจ็กต์ที่คุณเขียนเอง (agent อ่านทุก run) · คลิกแก้";
+let agPopover = null;
+function closeAg() { if (agPopover) { agPopover.remove(); agPopover = null; document.removeEventListener("click", closeAg); } }
+agBadge.onclick = async () => {
+  if (agPopover) return closeAg();
+  try {
+    const { content } = await (await fetch("/api/agents")).json();
+    agPopover = document.createElement("div"); agPopover.className = "pb-pop";
+    agPopover.style.minWidth = "360px";
+    agPopover.innerHTML = '<div class="h">📝 AGENTS.md — กฎของโปรเจ็กต์ (เว้นสั้น ~แนะนำ &lt; 50 บรรทัด)</div>' +
+      '<textarea id="agText" style="width:97%;height:170px;background:#0b0f14;color:#dbe4ee;border:1px solid #2a3542;border-radius:8px;padding:8px;font-size:12px"></textarea>' +
+      '<div style="text-align:right;margin-top:6px"><button class="cp" id="agSave" style="float:none">บันทึก</button></div>';
+    document.body.appendChild(agPopover);
+    agPopover.querySelector("#agText").value = content || "";
+    const b = agBadge.getBoundingClientRect();
+    agPopover.style.top = (b.bottom + 8) + "px";
+    agPopover.style.right = (innerWidth - b.right) + "px";
+    agPopover.onclick = (e) => e.stopPropagation();
+    agPopover.querySelector("#agSave").onclick = async (e) => {
+      e.stopPropagation();
+      const r = await fetch("/api/agents", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: agPopover.querySelector("#agText").value }) });
+      agBadge.textContent = r.ok ? "📝 ✓" : "📝 ✗";
+      setTimeout(() => refreshAg(), 1400);
+      closeAg();
+    };
+    setTimeout(() => document.addEventListener("click", closeAg, { once: true }));
+  } catch { agBadge.textContent = "📝 ?"; }
+};
+async function refreshAg() {
+  try {
+    const { content } = await (await fetch("/api/agents")).json();
+    agBadge.textContent = content && content.trim() ? "📝" : "📝+";
+    agBadge.title = "AGENTS.md " + (content && content.trim() ? "(มีกฎอยู่ — คลิกแก้)" : "(ยังว่าง — คลิกเขียนกฎของโปรเจ็กต์)");
+  } catch { agBadge.textContent = "📝"; }
+}
+refreshAg();
+
+const ckBadge = document.createElement("span");
+ckBadge.className = "ctl pb-badge";
+ckBadge.textContent = "🔒";
+ckBadge.title = "checkpoints — snapshot ก่อน agent แก้ไฟล์ (ดู diff / ย้อนกลับ) · คลิกดู";
+let ckPopover = null;
+function closeCk() { if (ckPopover) { ckPopover.remove(); ckPopover = null; document.removeEventListener("click", closeCk); } }
+ckBadge.onclick = async () => {
+  if (ckPopover) return closeCk();
+  try {
+    const { checkpoints } = await (await fetch("/api/checkpoints")).json();
+    ckPopover = document.createElement("div"); ckPopover.className = "pb-pop";
+    ckPopover.style.minWidth = "400px";
+    ckPopover.innerHTML = '<div class="h">🔒 checkpoints (' + checkpoints.length + ')</div>' +
+      (checkpoints.length ? "" : '<div class="r muted">ยังไม่มี — จะเก็บอัตโนมัติก่อนโมเดลแตะไฟล์ (file_edit/run_command)</div>') +
+      checkpoints.map((c) => {
+        const t = new Date(c.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        const head = c.files.length === 1 ? c.files[0] : c.files[0] + " (+อีก " + (c.files.length - 1) + " ไฟล์)";
+        return '<div class="r" data-ck="' + c.id + '">' +
+          '<span class="muted">' + t + '</span> ' + (c.kind === "run" ? "⚙️" : "✏️") + " " + esc(head) +
+          ' <span class="u">' + c.files.length + '</span> ' +
+          '<button class="cp ck-diff" style="float:none;margin:0 4px">ดู diff</button>' +
+          '<button class="cp ck-rst" style="float:none;margin:0">ย้อนกลับ</button>' +
+          '<div class="ck-view" style="display:none"></div></div>';
+      }).join("");
+    document.body.appendChild(ckPopover);
+    const b = ckBadge.getBoundingClientRect();
+    ckPopover.style.top = (b.bottom + 8) + "px";
+    ckPopover.style.right = (innerWidth - b.right) + "px";
+    ckPopover.onclick = (e) => e.stopPropagation();
+    for (const row of ckPopover.querySelectorAll("[data-ck]")) {
+      const id = row.dataset.ck;
+      const view = row.querySelector(".ck-view");
+      row.querySelector(".ck-diff").onclick = async () => {
+        if (view.style.display !== "none") { view.style.display = "none"; return; }
+        view.style.display = "block";
+        try {
+          const files = await (await fetch("/api/checkpoints/diff?id=" + encodeURIComponent(id))).json();
+          view.innerHTML = files.map((f) =>
+            '<div class="muted" style="margin-top:6px">' + esc(f.rel) + '</div>' +
+            f.diff.map((l) => '<div style="white-space:pre-wrap;font-family:monospace;font-size:11px;color:' +
+              (l.t === "add" ? "#47d18c" : l.t === "del" ? "#ff6b6b" : l.t === "mod" ? "#ffb454" : "#5a6876") + '">' +
+              esc((l.t === "add" ? "+ " : l.t === "del" ? "- " : "  ") + l.text) + "</div>").join("")
+          ).join("");
+        } catch (e) { view.textContent = "diff error: " + e.message; }
+      };
+      row.querySelector(".ck-rst").onclick = async () => {
+        if (!confirm("ย้อนกลับไฟล์ทั้งหมดใน checkpoint นี้? (เนื้อหาปัจจุบันจะถูกแทนด้วยเวอร์ชันก่อนแก้)")) return;
+        try {
+          const r = await fetch("/api/checkpoints/restore", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+          const out = await r.json();
+          row.querySelector(".ck-rst").textContent = out.restored ? "ย้อนแล้ว ✓" : "ว่าง";
+          if (out.restored) { ckBadge.textContent = "🔒 ↩"; setTimeout(refreshCk, 1200); }
+        } catch { row.querySelector(".ck-rst").textContent = "ผิดพลาด"; }
+      };
+    }
+    setTimeout(() => document.addEventListener("click", closeCk, { once: true }));
+  } catch { ckBadge.textContent = "🔒 ?"; }
+};
+async function refreshCk() {
+  try {
+    const { checkpoints } = await (await fetch("/api/checkpoints")).json();
+    ckBadge.textContent = "🔒 " + checkpoints.length;
+    ckBadge.title = "checkpoints: " + checkpoints.length + " (คลิกดู diff / ย้อนกลับ)";
+  } catch { ckBadge.textContent = "🔒"; }
+}
+refreshCk();
+
+evBadge.after(planBtn, ctxBadge, agBadge, ckBadge);
+
 /* ================= load models ================= */
 (async () => {
   try {
@@ -444,6 +591,7 @@ refreshEv();
     modelSel.innerHTML = "";
     const def = document.createElement("option");
     def.value = r.default; def.textContent = "⭐ " + r.default + " (default)";
+    def.dataset.ctx = ((r.models.find((m) => m.id === r.default) || {}).context) || 0;
     modelSel.appendChild(def);
     const free = r.models.filter((m) => m.free && m.tools).sort((a, b) => (b.context || 0) - (a.context || 0));
     const g = document.createElement("optgroup");
@@ -453,6 +601,7 @@ refreshEv();
       const o = document.createElement("option");
       o.value = m.id;
       o.textContent = m.name + " · " + (Number(m.context) / 1000).toFixed(0) + "k ctx";
+      o.dataset.ctx = m.context || 0;
       g.appendChild(o);
     }
     modelSel.appendChild(g);
@@ -463,8 +612,8 @@ refreshEv();
 })();
 
 /* ================= run (streaming + stop + history) ================= */
-async function run() {
-  const task = $("task").value.trim();
+async function run(ov = {}) {
+  const task = ov.task || $("task").value.trim();
   if (!task || running) return;
   if (!active()) newSession();
   const s = active();
@@ -489,6 +638,9 @@ async function run() {
     temp: $("temp").value === "" ? undefined : parseFloat($("temp").value),
     maxSteps: parseInt($("steps").value, 10) || undefined,
     mode: $("codeMode").checked ? "code" : undefined,
+    // Tier 1 plan mode: รอบวางแผน (agent ห้ามลงมือ) หรือแผนที่อนุมัติแล้ว (ลงมือตามแผน)
+    planMode: planOn && !ov.approvedPlan ? true : undefined,
+    approvedPlan: ov.approvedPlan || undefined,
   };
 
   let liveE = null; // bubble คำตอบที่กำลังไหล (streaming)
@@ -514,6 +666,11 @@ async function run() {
         const { type, data } = JSON.parse(ev);
         if (type === "queued") { actE.counts.queued = 1; updateEntry(actE); } // โดนพาเข้าคิว — งานก่อนหน้ายังรันอยู่
         if (type === "log" && data) { tallyLine(actE, data); updateEntry(actE); }
+        if (type === "plan") { // Tier 1: การ์ดแผน — สร้างใหม่ครั้งแรก แล้ว update สดตาม plan_done
+          const had = s.entries.find((e) => e.type === "plan" && e.plan && e.plan.id === data.id);
+          if (had) { had.plan = data; updateEntry(had); }
+          else appendEntry({ type: "plan", plan: data, approved: !!ov.approvedPlan });
+        }
         if (type === "answer-reset" && liveE) { liveE.text = ""; updateEntry(liveE); }
         if (type === "answer-delta") {
           if (!liveE) { liveE = { type: "answer", text: "", streaming: true }; appendEntry(liveE); }
@@ -544,7 +701,16 @@ async function run() {
   } finally {
     running = false; aborter = null;
     go.disabled = false; $("stop").hidden = true;
-    saveSessions(); renderChat(); refreshPb(); refreshSk(); refreshEv(); $("task").focus();
+    // Tier 1: badge cost/context — token ที่ใช้ไปกับความจุ context ของ model ที่เลือก
+    try {
+      const opt = modelSel.selectedOptions && modelSel.selectedOptions[0];
+      const mctx = opt ? +opt.dataset.ctx || 0 : 0;
+      const tok = actE.counts.tok || 0;
+      const fmt = (n) => (n >= 1024 ? (n / 1024).toFixed(1) + "k" : String(n));
+      ctxBadge.textContent = "⛁ " + fmt(tok) + (mctx ? " · " + Math.min(100, Math.round((tok / mctx) * 100)) + "% ctx" : "");
+      ctxBadge.title = "token ของรันล่าสุด" + (mctx ? " · context ของ model " + fmt(mctx) + " tok" : " (ไม่รู้ความจุ model)");
+    } catch {}
+    saveSessions(); renderChat(); refreshPb(); refreshSk(); refreshEv(); refreshCk(); $("task").focus();
   }
 }
 go.onclick = run;

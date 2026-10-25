@@ -21,6 +21,7 @@ process.env.OPENROUTER_API_KEY = "sk-mock-test";
 process.env.AGENT_EVENTS_FILE = require("node:path").join(require("node:os").tmpdir(), "agent-ev-test.jsonl");
 process.env.AGENT_PLAYBOOK_FILE = require("node:path").join(require("node:os").tmpdir(), "agent-pb-test.jsonl");
 process.env.AGENT_NO_EVALS = "1"; // Circuit 3 ปิดใน test เดิม — กัน eval-reflector ยิง LLM นอกสคริปต์
+process.env.AGENT_NO_CHECKPOINTS = "1"; // Tier 1 ปิดใน test เดิม — ไม่เขียนลง repo จริง
 
 // ---------------------------------------------------------------
 // helper: à¸«à¹ˆà¸­ response à¸£à¸¹à¸›à¹à¸šà¸š OpenAI-compatible

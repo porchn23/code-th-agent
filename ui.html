@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Research Agent</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin:0; background:#0a0c10; color:#dbe2ea; font-family:'Segoe UI',system-ui,sans-serif; display:flex; }
+
+  /* ---------- Sidebar (sessions) ---------- */
+  #side { width:236px; min-width:236px; background:#0f1216; border-right:1px solid #1d232b;
+          display:flex; flex-direction:column; height:100vh; }
+  #side h1 { font-size:15px; margin:14px 14px 10px; letter-spacing:.3px; }
+  #newChat { margin:0 14px 8px; padding:9px; border-radius:8px; border:1px solid #2b333d;
+             background:#161b22; color:#8fd0ff; cursor:pointer; font-size:13px; text-align:center; }
+  #newChat:hover { background:#1c232c; }
+  #sessSearch { margin:0 14px 8px; padding:7px 10px; border-radius:8px; border:1px solid #2b333d;
+                background:#161b22; color:#dbe2ea; font-size:12px; }
+  #sessSearch:focus { outline:none; border-color:#58a6ff; }
+  #sessList { flex:1; overflow-y:auto; padding:0 8px 10px; }
+  .sess { padding:9px 10px; border-radius:8px; cursor:pointer; margin-bottom:4px; }
+  .sess:hover { background:#161b22; }
+  .sess.active { background:#1b2937; }
+  .sess .row { display:flex; align-items:center; gap:6px; }
+  .sess .t { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; }
+  .sess .x { visibility:hidden; border:none; background:none; color:#697584; cursor:pointer; font-size:11px; padding:1px 4px; }
+  .sess:hover .x { visibility:visible; }
+  .sess .x:hover { color:#f85149; }
+  .sess .d { font-size:11px; color:#697584; margin-top:2px; }
+  #sideFoot { padding:10px 14px; border-top:1px solid #1d232b; font-size:11px; color:#697584; }
+  #export { margin:0 14px 8px; padding:8px; border-radius:8px; border:1px dashed #2b333d;
+            background:transparent; color:#8b98a5; cursor:pointer; font-size:12px; text-align:center; }
+  #export:hover { color:#8fd0ff; border-color:#58a6ff; }
+
+  /* ---------- Main chat ---------- */
+  #main { flex:1; display:flex; flex-direction:column; height:100vh; min-width:0; }
+  #header { padding:12px 22px; border-bottom:1px solid #1d232b; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  #header .name { font-size:14px; font-weight:600; }
+  #header .sub  { font-size:12px; color:#697584; }
+  .ctl { max-width:340px; padding:7px 10px; border-radius:8px; border:1px solid #2b333d;
+         background:#161b22; color:#dbe2ea; font-size:12px; }
+  #temp { width:64px; }
+  #steps { width:64px; }
+  /* Circuit 1: playbook badge + popover โชว์กฎที่ agent เรียนรู้ */
+  .pb-badge { cursor:pointer; white-space:nowrap; user-select:none; background:#10141a; color:#7dd3fc; }
+  .pb-badge:hover { border-color:#58a6ff; }
+  .answer pre.cblk { background:#0b0f14; border:1px solid #1e252e; border-radius:8px;
+                     padding:10px 12px; margin:8px 0; overflow-x:auto; white-space:pre;
+                     font:12.5px/1.5 Consolas,monospace; color:#c9d1d9; }
+  .pb-pop { position:fixed; z-index:60; max-width:520px; max-height:60vh; overflow-y:auto;
+            background:#0d1117; border:1px solid #2b333d; border-radius:12px; padding:12px 14px;
+            font-size:12.5px; color:#dbe2ea; box-shadow:0 12px 32px rgba(0,0,0,.5); }
+  .pb-pop .h { font-weight:600; margin-bottom:8px; color:#58a6ff; }
+  .pb-pop .r { margin:4px 0; line-height:1.45; }
+  .pb-pop .r .t { color:#d29922; font-size:11px; }
+  .pb-pop .r .u { color:#8b98a5; font-size:11px; }
+  .pb-pop .r.muted { color:#8b98a5; font-style:italic; }
+
+  #chat { flex:1; overflow-y:auto; padding:20px 22px 10px; max-width:980px; width:100%; margin:0 auto; }
+  .msg-user { display:flex; justify-content:flex-end; margin:14px 0; }
+  .msg-user .b { background:#1b2937; border:1px solid #24384d; padding:10px 15px;
+                 border-radius:14px 14px 3px 14px; max-width:78%; font-size:14px; line-height:1.5; white-space:pre-wrap; }
+  .msg-agent { margin:14px 0; max-width:88%; }
+  .msg-agent .name { font-size:11px; color:#697584; margin:0 0 6px 2px; letter-spacing:.4px;
+                     display:flex; align-items:center; justify-content:space-between; }
+  .cp { border:1px solid #2b333d; background:#161b22; color:#697584; font-size:10.5px;
+        border-radius:6px; padding:2px 9px; cursor:pointer; letter-spacing:0; }
+  .cp:hover { color:#8fd0ff; border-color:#58a6ff; }
+
+  /* activity ตอน agent ทำงาน — แสดงเป็น chip icon + จำนวน เรียบ ๆ ไม่แยกกล่อง log */
+  .chips { display:inline-flex; flex-wrap:wrap; gap:10px; align-items:center; font-size:12.5px;
+           color:#8b98a5; background:#10141a; border:1px solid #1e252e; border-radius:999px; padding:6px 14px; }
+  .chips b { color:#dbe2ea; font-weight:600; }
+  .chips .e { color:#f85149; }
+  .chips .spin { margin-right:6px; }
+  .chips .done { color:#3fb950; }
+  .chips .tok { color:#d29922; }
+  .spin { display:inline-block; width:11px; height:11px; border:2px solid #58a6ff; border-top-color:transparent;
+          border-radius:50%; animation:r .8s linear infinite; }
+  @keyframes r { to { transform:rotate(360deg); } }
+
+  /* คำตอบ */
+  .answer { font-size:14px; line-height:1.68; }
+  .answer.streaming { white-space:pre-wrap; }
+  .answer h2 { font-size:16px; margin:14px 0 8px; border-bottom:1px solid #262d38; padding-bottom:5px; }
+  .answer h3 { font-size:14.5px; margin:12px 0 6px; }
+  .answer a { color:#58a6ff; }
+  .answer code { background:#1c232c; padding:1px 5px; border-radius:5px; font-size:12.5px; }
+  .answer li { margin-left:20px; margin-top:3px; }
+  .errbox { border:1px solid #5c2024; background:#1a0f10; color:#f85149; border-radius:10px;
+            padding:11px 14px; font-size:13px; }
+
+  /* ---------- Prompt bar ---------- */
+  #bar { border-top:1px solid #1d232b; padding:13px 22px 16px; background:inherit; }
+  #bar .in { display:flex; gap:9px; max-width:980px; margin:0 auto; }
+  #task { flex:1; padding:12px 15px; border-radius:11px; border:1px solid #2b333d;
+          background:#161b22; color:#dbe2ea; font-size:14px; }
+  #task:focus { outline:none; border-color:#58a6ff; }
+  #go { padding:0 24px; border-radius:11px; border:none; background:#238636; color:#fff;
+        font-weight:600; cursor:pointer; font-size:14px; }
+  #go:disabled { opacity:.45; cursor:wait; }
+  #stop { padding:0 18px; border-radius:11px; border:1px solid #5c2024; background:#1a0f10;
+          color:#f85149; font-weight:600; cursor:pointer; font-size:14px; }
+  #stop:disabled { opacity:.45; }
+</style>
+</head>
+<body>
+  <div id="side">
+    <h1>🔬 Research Agent</h1>
+    <div id="newChat">＋ New conversation</div>
+    <input id="sessSearch" placeholder="🔍 ค้นหาแชต…">
+    <div id="sessList"></div>
+    <button id="export">⬇ Export เป็น .md</button>
+    <div id="sideFoot">sessions อยู่ใน localStorage (30 อัน)</div>
+  </div>
+  <div id="main">
+    <div id="header">
+      <div>
+        <div class="name">Research — multi-agent</div>
+        <div class="sub">streaming · memory · token thrift · tools: search / fetch / calc / files</div>
+      </div>
+      <div style="display:flex; gap:7px; align-items:center;">
+        <span id="pbBadge" class="ctl pb-badge" title="playbook: กฎที่ agent เรียนจาก run ที่ล้มเหลว — คลิกดู">📓 …</span>
+        <span id="skBadge" class="ctl pb-badge" title="tool library: custom tools ที่ agent สร้างเอง — คลิกดู">🧱 …</span>
+        <input id="temp" class="ctl" type="number" min="0" max="2" step="0.1" value="0.7" title="temperature (ต่ำ = แม่น)">
+        <label class="ctl" style="display:flex;gap:5px;align-items:center;cursor:pointer" title="Code Mode: เปิด run_command/file_edit/file_grep + verification gate (ต้องรันของจริงก่อนบอกว่าเสร็จ)"><input id="codeMode" type="checkbox" style="accent-color:#58a6ff">💻 โค้ด</label>
+        <select id="steps" class="ctl" title="max steps / คำถาม">
+          <option>6</option><option selected>12</option><option>18</option><option>24</option>
+        </select>
+        <select id="model" class="ctl"><option value="">loading models…</option></select>
+      </div>
+    </div>
+    <div id="chat"></div>
+    <div id="bar">
+      <div class="in">
+        <input id="task" placeholder="ส่งงานวิจัยให้ agent … (Enter เพื่อส่ง)" autofocus>
+        <button id="stop" hidden>⏹ Stop</button>
+        <button id="go">Send</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ================= state + sessions (like OpenCode) ================= */
+const $ = (id) => document.getElementById(id);
+const chat = $("chat"), go = $("go"), modelSel = $("model");
+
+let sessions = loadSessions();
+let activeId = sessions[0] ? sessions[0].id : null;
+let running = false;
+let aborter = null;
+
+function loadSessions() { try { return JSON.parse(localStorage.getItem("ra_sessions") || "[]") || []; } catch { return []; } }
+function saveSessions() { try { localStorage.setItem("ra_sessions", JSON.stringify(sessions.slice(0, 30))); } catch {} }
+function active() { return sessions.find((s) => s.id === activeId); }
+
+function newSession() {
+  const s = { id: "s" + Date.now(), title: "New conversation", ts: Date.now(), entries: [] };
+  sessions.unshift(s);
+  activeId = s.id;
+  saveSessions(); renderSidebar(); renderChat();
+  $("task").focus();
+}
+$("newChat").onclick = newSession;
+
+function renderSidebar() {
+  const box = $("sessList");
+  const q = $("sessSearch").value.trim().toLowerCase();
+  let list = sessions;
+  if (q) {
+    list = sessions.filter((s) =>
+      (s.title || "").toLowerCase().includes(q) ||
+      (s.entries || []).some((e) => (e.text || "").toLowerCase().includes(q))
+    );
+  }
+  box.innerHTML = "";
+  if (!list.length) {
+    box.innerHTML = '<div style="color:#5b6572;font-size:12px;padding:8px">' + (q ? "ไม่พบแชตที่ค้นหา" : "ยังไม่มีบทสนทนา") + "</div>";
+    return;
+  }
+  for (const s of list) {
+    const d = document.createElement("div");
+    d.className = "sess" + (s.id === activeId ? " active" : "");
+    d.innerHTML = '<div class="row"><div class="t">' + esc(s.title) + '</div><button class="x" title="ลบแชต">✕</button></div>' +
+                  '<div class="d">' + new Date(s.ts).toLocaleString() + "</div>";
+    // rename: ดับเบิลคลิกชื่อ
+    d.ondblclick = (ev) => {
+      if (ev.target.classList.contains("x")) return;
+      const t = prompt("เปลี่ยนชื่อแชต:", s.title);
+      if (t && t.trim()) { s.title = t.trim().slice(0, 60); saveSessions(); renderSidebar(); }
+    };
+    d.onclick = () => { activeId = s.id; renderSidebar(); renderChat(); };
+    d.querySelector(".x").onclick = (ev) => {
+      ev.stopPropagation();
+      if (!confirm("ลบแชต \"" + s.title + "\" ?")) return;
+      const isThis = s.id === activeId;
+      sessions = sessions.filter((x) => x.id !== s.id);
+      if (isThis) { activeId = sessions[0] ? sessions[0].id : null; }
+      saveSessions(); renderSidebar(); renderChat();
+    };
+    box.appendChild(d);
+  }
+}
+$("sessSearch").addEventListener("input", renderSidebar);
+
+/* ================= rendering ================= */
+// escape ครบทั้ง HTML context: & < > " ' — เว้นแต่ escape quote อย่างเดียว
+// ลิงก์ที่มี " ใน URL จะหลุดออกจาก attribute href แล้วกลายเป็น on*= handler (XSS)
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+/* md() พร้อม fenced code block (```...```) สำหรับงาน dev
+   self-contained (inner fn) เพราะ test-mock "ดึง" ฟังก์ชัน md() ไปรันตอนทดสอบ XSS */
+function md(src) {
+  const inline = (src) => {
+    let h = esc(src);
+    h = h.replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    h = h.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+    h = h.replace(/`([^`]+)`/g, "<code>$1</code>");
+    const lines = h.split(/\n/).map(line => {
+      if (/^###\s/.test(line)) return "<h3>" + line.slice(4) + "</h3>";
+      if (/^##\s/.test(line))  return "<h2>" + line.slice(3) + "</h2>";
+      if (/^[-*]\s/.test(line)) return "<li>" + line.slice(2) + "</li>";
+      return line;
+    });
+    return lines.join("\n").replace(/\n{2,}/g, "<br><br>").replace(/\n/g, "<br>");
+  };
+  // split ด้วย fence (ทำบนข้อความดิบ — ยังไม่ esc) — จับคู่ even=text odd=code
+  const parts = String(src).split(/```[a-zA-Z0-9_+-]*[ \t]*\r?\n?/);
+  let out = "";
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) out += '<pre class="cblk">' + esc(parts[i].replace(/\r?\n$/, "")) + "</pre>";
+    else out += inline(parts[i]);
+  }
+  return out;
+}
+const lineClass = (t) => /\^?Error|✗/i.test(t) ? "err" : /Model requests|→/.test(t) ? "warn" : /FINAL ANSWER/.test(t) ? "ok" : "";
+
+/* นับการใช้งาน agent จากบรรทัด log: ขั้นตอน / tool / sub-agent / error / token */
+const TOOL_ICONS = { web_search: "🔍", web_fetch: "🌐", research_subagent: "👥", get_datetime: "⏰", calculator: "🧮", js_eval: "💻", file_read: "📖", file_write: "📝", memory_save: "🧠", memory_recall: "💾", run_command: "🔧", file_edit: "✏️", file_grep: "🔎", tool_create: "🛠" };
+const TOOL_LABELS = { web_search: "search", web_fetch: "fetch", research_subagent: "agents", get_datetime: "time", calculator: "calc", js_eval: "js", file_read: "read", file_write: "write", memory_save: "mem", memory_recall: "recall", run_command: "cmd", file_edit: "edit", file_grep: "grep", tool_create: "create" };
+const tallyLine = (e, t) => {
+  if (!e.counts) e.counts = {};
+  const c = e.counts;
+  let m = t.match(/── step (\d+)/); if (m) c.step = +m[1];
+  m = t.match(/→ (\w+)\(/);
+  if (m && TOOL_ICONS[m[1]]) c[m[1]] = (c[m[1]] || 0) + 1;
+  else if (m && m[1] !== "FINAL") c.custom = (c.custom || 0) + 1; // custom tool ที่ agent สร้างเอง
+  if (lineClass(t) === "err") c.errs = (c.errs || 0) + 1;
+  if (t.includes("⛁") && !/total/i.test(t)) {
+    m = t.match(/~?([\d,]+) tok/);
+    if (m) c.tok = (c.tok || 0) + parseInt(m[1].replace(/,/g, ""), 10);
+  }
+};
+
+function entryNode(e) {
+  if (e.type === "user") {
+    const d = document.createElement("div"); d.className = "msg-user";
+    d.innerHTML = '<div class="b">' + esc(e.text) + "</div>";
+    return d;
+  }
+  if (e.type === "activity") {
+    if (e.lines && !e.counts) e.lines.forEach((l) => tallyLine(e, l)); // บทสนทนาเก่า
+    const c = e.counts || {};
+    const parts = [];
+    parts.push(e.done ? '<span class="done">✅</span>' : '<span class="spin"></span>');
+    if (c.step) parts.push('⚡ <b>' + c.step + '</b> steps');
+    for (const k in TOOL_ICONS) if (c[k]) parts.push(TOOL_ICONS[k] + ' <b>' + c[k] + '</b> ' + TOOL_LABELS[k]);
+    if (c.custom) parts.push('🧩 <b>' + c.custom + '</b> custom');
+    if (c.tok) parts.push('<span class="tok">⛁ <b>' + c.tok.toLocaleString() + '</b> tok</span>');
+    if (c.errs) parts.push('<span class="e">⚠ <b>' + c.errs + '</b> errors</span>');
+    const d = document.createElement("div"); d.className = "msg-agent";
+    d.innerHTML = '<div class="chips">' + parts.join('<span style="opacity:.4">·</span>') + '</div>';
+    return d;
+  }
+  if (e.type === "answer") {
+    const d = document.createElement("div"); d.className = "msg-agent";
+    const showCopy = e.text && e.text.length > 0 && !e.streaming;
+    // ระหว่าง stream ใช้ข้อความดิบ (ถูกกว่า md ทุก delta) — ครั้งสุดท้ายค่อยแต่ง markdown
+    const body = e.streaming ? esc(e.text || "") : md(e.text || "");
+    d.innerHTML = '<div class="name">AGENT REPLY' + (showCopy ? '<button class="cp">copy</button>' : '') + '</div>' +
+                  '<div class="answer' + (e.streaming ? " streaming" : "") + '">' + body + "</div>";
+    if (showCopy) d.querySelector(".cp").onclick = () => {
+      navigator.clipboard.writeText(e.text).then(() => {
+        const b = d.querySelector(".cp"); const old = b.textContent;
+        b.textContent = "✓ copied"; setTimeout(() => (b.textContent = old), 1200);
+      });
+    };
+    return d;
+  }
+  if (e.type === "error") {
+    const d = document.createElement("div"); d.className = "msg-agent";
+    d.innerHTML = '<div class="errbox">❌ ' + esc(e.text) + "</div>";
+    return d;
+  }
+  return document.createElement("div");
+}
+
+function renderChat() {
+  chat.innerHTML = "";
+  const s = active();
+  if (s) for (const e of s.entries) chat.appendChild(entryNode(e));
+  chat.scrollTop = 1e9;
+}
+// แค่ append entry ล่าสุด ไม่ re-render ทั้งความ (กันดีด UI ระหว่าง log/delta ไหล)
+function appendEntry(e) { const s = active(); if (!s) return; e.n = s.entries.length; s.entries.push(e); const node = entryNode(e); node._eid = e.n; chat.appendChild(node); chat.scrollTop = 1e9; }
+// re-render entry เดียว (ใช้ทั้ง activity และ answer streaming)
+function updateEntry(e) {
+  const node = entryNode(e);
+  const target = [...chat.children].find((c) => c._eid === e.n);
+  if (target) chat.replaceChild(node, target); else { chat.appendChild(node); }
+  node._eid = e.n; chat.scrollTop = 1e9;
+}
+
+/* ================= settings (persist) ================= */
+(function loadSettings() {
+  try {
+    const st = JSON.parse(localStorage.getItem("ra_set") || "{}");
+    if (typeof st.temp === "number") $("temp").value = st.temp;
+    if (st.steps) $("steps").value = st.steps;
+    if (st.codeMode) $("codeMode").checked = true;
+  } catch {}
+})();
+function saveSettings() {
+  try {
+    localStorage.setItem("ra_set", JSON.stringify({ temp: parseFloat($("temp").value), steps: parseInt($("steps").value, 10), codeMode: $("codeMode").checked }));
+  } catch {}
+}
+$("temp").addEventListener("change", saveSettings);
+$("steps").addEventListener("change", saveSettings);
+$("codeMode").addEventListener("change", () => {
+  saveSettings();
+  $("task").placeholder = $("codeMode").checked
+    ? "ส่งงาน dev … อ่าน/แก้ไฟล์, รันคำสั่ง, สร้าง tool ใหม่ (Enter เพื่อส่ง)"
+    : "ส่งงานวิจัยให้ agent … (Enter เพื่อส่ง)";
+});
+
+/* ================= playbook badge (Circuit 1) ================= */
+const pbBadge = $("pbBadge");
+let pbPopover = null;
+function closePb() { if (pbPopover) { pbPopover.remove(); pbPopover = null; document.removeEventListener("click", closePb); } }
+pbBadge.onclick = async () => {
+  if (pbPopover) return closePb();
+  try {
+    const { rules, events } = await (await fetch("/api/playbook")).json();
+    pbPopover = document.createElement("div"); pbPopover.className = "pb-pop";
+    pbPopover.innerHTML =
+      '<div class="h">📓 playbook (' + rules.length + ' rules · ' + events + ' runs logged)</div>' +
+      rules.map((r) => '<div class="r"><span class="t">[' + esc(r.tag) + ']</span> ' + esc(r.rule) +
+                      ' <span class="u">×' + r.usageCount + '</span></div>').join("") +
+      (events ? "" : '<div class="r muted">ยังไม่มี run — log จะเติมทันทีที่ agent ทำงาน</div>');
+    document.body.appendChild(pbPopover);
+    const b = pbBadge.getBoundingClientRect();
+    pbPopover.style.top = (b.bottom + 8) + "px";
+    pbPopover.style.right = (innerWidth - b.right) + "px";
+    setTimeout(() => document.addEventListener("click", closePb, { once: true }));
+  } catch { pbBadge.textContent = "📓 ?"; }
+};
+async function refreshPb() {
+  try {
+    const { rules, events } = await (await fetch("/api/playbook")).json();
+    pbBadge.textContent = "📓 " + rules.length;
+    pbBadge.title = "playbook: " + rules.length + " rules · " + events + " runs logged (คลิกดู)";
+  } catch {}
+}
+refreshPb();
+
+/* ================= tool library badge (Circuit 2) ================= */
+const skBadge = $("skBadge");
+let skPopover = null;
+function closeSk() { if (skPopover) { skPopover.remove(); skPopover = null; document.removeEventListener("click", closeSk); } }
+skBadge.onclick = async () => {
+  if (skPopover) return closeSk();
+  try {
+    const { tools } = await (await fetch("/api/skills")).json();
+    skPopover = document.createElement("div"); skPopover.className = "pb-pop";
+    skPopover.innerHTML =
+      '<div class="h">🧱 tool library (' + tools.length + ' custom tools)</div>' +
+      tools.map((s) => '<div class="r"><b>' + esc(s.name) + '</b> — ' + esc(s.description || "") +
+                       ' <span class="u">×' + (s.calls || 0) + '</span></div>').join("") +
+      (tools.length ? "" : '<div class="r muted">ยังไม่มี — agent จะสร้างเองเมื่องานต้องการ (tool_create)</div>');
+    document.body.appendChild(skPopover);
+    const b = skBadge.getBoundingClientRect();
+    skPopover.style.top = (b.bottom + 8) + "px";
+    skPopover.style.right = (innerWidth - b.right) + "px";
+    setTimeout(() => document.addEventListener("click", closeSk, { once: true }));
+  } catch { skBadge.textContent = "🧱 ?"; }
+};
+async function refreshSk() {
+  try {
+    const { tools } = await (await fetch("/api/skills")).json();
+    skBadge.textContent = "🧱 " + tools.length;
+    skBadge.title = "tool library: " + tools.length + " custom tools (คลิกดู)";
+  } catch {}
+}
+refreshSk();
+
+/* ================= load models ================= */
+(async () => {
+  try {
+    const r = await (await fetch("/api/models")).json();
+    modelSel.innerHTML = "";
+    const def = document.createElement("option");
+    def.value = r.default; def.textContent = "⭐ " + r.default + " (default)";
+    modelSel.appendChild(def);
+    const free = r.models.filter((m) => m.free && m.tools).sort((a, b) => (b.context || 0) - (a.context || 0));
+    const g = document.createElement("optgroup");
+    g.label = "Free · tool-capable (" + free.length + ")";
+    for (const m of free) {
+      if (m.id === r.default) continue;
+      const o = document.createElement("option");
+      o.value = m.id;
+      o.textContent = m.name + " · " + (Number(m.context) / 1000).toFixed(0) + "k ctx";
+      g.appendChild(o);
+    }
+    modelSel.appendChild(g);
+  } catch (e) {
+    modelSel.disabled = true;
+    modelSel.innerHTML = "<option value=''>⚠ model list error</option>";
+  }
+})();
+
+/* ================= run (streaming + stop + history) ================= */
+async function run() {
+  const task = $("task").value.trim();
+  if (!task || running) return;
+  if (!active()) newSession();
+  const s = active();
+  if (s.entries.length === 0) { s.title = task.slice(0, 44); s.ts = Date.now(); renderSidebar(); }
+
+  running = true; go.disabled = true; $("stop").hidden = false; $("task").value = "";
+  const userE = { type: "user", text: task };
+  const actE  = { type: "activity", counts: {}, done: false };
+  appendEntry(userE); appendEntry(actE); saveSessions();
+
+  // ประวัติ Q&A ก่อนหน้าของแชตนี้ (ตัด entry 2 ทีที่เพิ่ง append) → agent จำบริบท cross-turn
+  const history = s.entries
+    .slice(0, s.entries.length - 2)
+    .filter((e) => e.type === "user" || (e.type === "answer" && e.text))
+    .map((e) => ({ role: e.type === "user" ? "user" : "assistant", content: String(e.text) }))
+    .slice(-8);
+
+  const body = {
+    task,
+    model: modelSel.value || undefined,
+    history,
+    temp: $("temp").value === "" ? undefined : parseFloat($("temp").value),
+    maxSteps: parseInt($("steps").value, 10) || undefined,
+    mode: $("codeMode").checked ? "code" : undefined,
+  };
+
+  let liveE = null; // bubble คำตอบที่กำลังไหล (streaming)
+  try {
+    aborter = new AbortController();
+    const res = await fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: aborter.signal,
+    });
+    if (!res.ok || !res.body) throw new Error((await res.text()) || "stream failed");
+
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      for (const raw of buf.split("\n\n")) {
+        const ev = raw.replace(/^data: /, "").trim();
+        if (!ev.startsWith("{")) continue;
+        const { type, data } = JSON.parse(ev);
+        if (type === "log" && data) { tallyLine(actE, data); updateEntry(actE); }
+        if (type === "answer-reset" && liveE) { liveE.text = ""; updateEntry(liveE); }
+        if (type === "answer-delta") {
+          if (!liveE) { liveE = { type: "answer", text: "", streaming: true }; appendEntry(liveE); }
+          liveE.text += data; updateEntry(liveE);
+        }
+        if (type === "answer") {
+          if (!liveE) { liveE = { type: "answer", text: String(data ?? "") }; appendEntry(liveE); }
+          else { liveE.text = String(data ?? ""); liveE.streaming = false; }
+          liveE.done = true; updateEntry(liveE); liveE = null;
+          actE.done = true; updateEntry(actE);
+        }
+        if (type === "error") {
+          appendEntry({ type: "error", text: String(data) });
+          actE.done = true; }
+      }
+      buf = buf.split("\n\n").pop();
+    }
+    // ถ้า stream จบไปโดยไม่มี answer/error ให้ปิด spinner ไปก่อน
+    if (!actE.done) actE.done = true;
+    updateEntry(actE);
+  } catch (e) {
+    if (e.name === "AbortError") {
+      appendEntry({ type: "error", text: "⏹ หยุดงานตามคำสั่งผู้ใช้" });
+    } else {
+      appendEntry({ type: "error", text: e.message });
+    }
+    actE.done = true; updateEntry(actE);
+  } finally {
+    running = false; aborter = null;
+    go.disabled = false; $("stop").hidden = true;
+    saveSessions(); renderChat(); refreshPb(); refreshSk(); $("task").focus();
+  }
+}
+go.onclick = run;
+$("stop").onclick = () => aborter && aborter.abort();
+$("task").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); run(); } });
+
+/* ================= export แชตเป็น markdown ================= */
+$("export").onclick = () => {
+  const s = active();
+  if (!s || !s.entries.length) return alert("ไม่มีเนื้อหาให้ export");
+  let out = "# " + (s.title || "Research Agent chat") + "\n\n";
+  for (const e of s.entries) {
+    if (e.type === "user") out += "## 🧑 ผู้ใช้\n\n" + e.text + "\n\n";
+    else if (e.type === "activity") {
+      const c = e.counts || {};
+      const bits = [];
+      if (c.step) bits.push("⚡" + c.step + " steps");
+      if (c.web_search) bits.push("🔍" + c.web_search);
+      if (c.web_fetch) bits.push("🌐" + c.web_fetch);
+      if (c.research_subagent) bits.push("👥" + c.research_subagent);
+      if (c.tok) bits.push("⛁~" + c.tok + " tok");
+      if (c.errs) bits.push("⚠" + c.errs);
+      if (bits.length) out += "_(" + bits.join(" · ") + ")_\n\n";
+    }
+    else if (e.type === "answer") out += "## 🤖 Agent\n\n" + e.text + "\n\n";
+    else if (e.type === "error") out += "> ❌ " + e.text + "\n\n";
+  }
+  const fname = (s.title || "chat").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 40) + ".md";
+  const blob = new Blob([out], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = fname; a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+/* boot */
+if (!sessions.length) newSession(); else { renderSidebar(); renderChat(); }
+window.addEventListener("beforeunload", saveSessions);
+</script>
+</body>
+</html>

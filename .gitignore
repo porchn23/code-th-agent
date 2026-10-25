@@ -1,0 +1,17 @@
+# ---- secrets ----
+.openrouter_key
+.env
+.env.*
+*.key
+
+# ---- agent state ----
+.agent_memory.json
+agent-events.jsonl
+agent_playbook.json
+
+# ---- generated output ----
+reports/
+
+# ---- node ----
+node_modules/
+npm-debug.log*

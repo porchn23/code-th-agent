@@ -1,0 +1,71 @@
+# code-th-agent — Compounding Agent 🤖
+
+**Agent ที่ "เก่งขึ้นทุกวันด้วยตัวเอง"** — AI agent framework น้ำหนักเบา เขียนด้วย JavaScript ล้วน **ไม่มี dependencies เลย (zero-dependency)** รันด้วย Node.js ตรง ๆ ไม่ต้อง npm install
+
+> หลักคิด: Agent เก่งหรือไม่เก่ง ไม่ได้อยู่ที่โมเดลอย่างเดียว — อยู่ที่ **harness** รอบโมเดล (retry/context/tools/verification) รวมถึง **ความสามารถในการสะสมประสบการณ์ข้ามรอบ** 🔁
+
+## 🔄 วงจรสะสม (Compounding Circuits)
+
+| วงจร | กลไก | สถานะ |
+|---|---|---|
+| **1. Failure→Rule** (Playbook) | ทุก run ถูกบันทึกลง `agent-events.jsonl` · run ที่มี error → Reflector ถอดเป็นกฎ 1 บรรทัด → Curator dedupe (code-only) → run ถัดไป inject กฎที่เกี่ยวเข้า system prompt (งบ ~400 tok) | ✅ |
+| **2. Need→Tool** (Skill Library) | Agent มี `tool_create` — เขียน tool ใหม่เป็นไฟล์ JS เอง test-run ใน sandbox ก่อน → ถ้าผ่าน ลงทะเบียนถาวรใน `skills/` ใช้ข้าม run ได้ + inject spec เข้า run ปัจจุบันทันที | ✅ |
+| **3. Task→Eval** | เก็บ checklist/วิธีที่ work ของแต่ละประเภทงาน ใช้ซ้ำ | ⏳ roadmap |
+
+SPARK — ภารกิจของ agent ถูกฝังใน system prompt ทุก run: *"every run should make the NEXT run faster, cheaper, or smarter"*
+
+## ✨ ฟีเจอร์หลัก (v12)
+
+- **2 โหมด**: 🔎 Research (web_search + web_fetch + citation + freshness rule) / 💻 Code (`run_command` + `file_edit` exact-match + `file_grep` + **VERIFICATION GATE** — ห้ามบอกว่า "เสร็จ" โดยไม่รันจริง)
+- **Streaming UI** (SSE): เห็นคำตอบไหลทีละคำ + activity chips (⚡ steps 🔍 🌐 👥 🛠 ⛁ tokens ⚠ errors) + เลข token จริงจาก API ทุก step
+- **Multi-agent**: `research_subagent` spawn ได้ (sub-agent ได้ context สดใหม่ + งบ token ต่ำกว่า) — ใช้เฉพาะเมื่อจำเป็นจริง
+- **Token thrift**: parallel tool calls + dedupe ซ้ำ + trim tool results เก่า (300 chars) + history cap การจัดการ token อย่างเข้มงวด
+- **Security**: js_eval รันผ่าน `node:vm` sandbox (บล็อก eval/Function/WASM escape), run_command บล็อก command อันตราย (rm -rf/format/del /s), ทุก output scrub secret อัตโนมัติ (`sk-or-***`), XSS-safe markdown renderer
+- **Memory**: long-term memory tool (`memory_save`/`memory_recall` ลง `.agent_memory.json`) + session history (สนทนาต่อเนื่องใน UI)
+- **UI สไตล์ OpenCode**: sessions sidebar (ค้นหา/เปลี่ยนชื่อ/ลบ/export .md), model dropdown จาก OpenRouter, settings (temp/maxSteps/โหมด code), 📓 playbook badge, 🧱 custom tools badge
+
+## 🏁 Quick Start
+
+```bash
+# 1. ใส่ OpenRouter API key
+#    สร้างไฟล์ .openrouter_key (ดูวิธีที่จอหลักตอนรันครั้งแรก)
+#    หรือตั้ง env OPENROUTER_API_KEY
+node check-key.js   # (optional) ตรวจ key ตัวไหนใช้ web search (:online) ได้
+
+# 2. เปิด web UI
+node server.js      # → http://localhost:8787
+
+# หรือใช้ CLI
+node research-agent.js "หัวข้อ research ที่อยากรู้"
+node research-agent.js --playbook   # ดูกฎที่ agent เรียนรู้มา
+```
+
+## 🧪 Tests (offline, ไม่กิน API quota — ผ่าน 74 asserts ทั้งหมด)
+
+```bash
+node test-mock.js          # multi-agent + error self-recovery + sandbox escape + XSS (13)
+node test-codemode.js      # verification gate + file_edit + destructive cmd block (12)
+node test-tools.js         # tool_create: register/test-run/persist/reject (13)
+node test-playbook.js      # event log + reflector + dedupe + prompt injection (15)
+node test-server-mock.js   # SSE streaming + concurrent guard + Stop + tool order (8)  ※ปิด dev server ก่อน
+node test-smoke.js         # จริง: boot + route + validation (5)
+```
+
+## 🗂 โครงสร้าง
+
+```
+research-agent.js   ← หัวใจ: LLM + tools + loop + playbook + skill library
+server.js           ← web backend (SSE, port 8787)
+ui.html             ← UI ทั้งหมด (single file)
+js-eval-runner.js   ← sandbox runner ของ js_eval (node:vm)
+test-*.js           ← 6 ชุดทดสอบ offline
+docs/project-history.md  ← index เอกสาร + version history
+AGENT-ROADMAP.md    ← roadmap ของระบบ (วงจร 1-3 + Code Mode)
+```
+
+## 🔗 การอ้างอิงแนวคิด
+
+ดีไซน์นี้ดึงแรงบันดาลใจและหลักการจาก: **ACE** (playbook Reflector/Curator), **Alita** (self-evolving tools), **Voyager** (skill library), **SWE-agent** (ACI/guardrails), **OpenHands** (event stream), **Letta/MemGPT** (memory)
+
+---
+*โปรเจ็คต์เรียนรู้ — สร้างด้วยวิธี "talk-driven development" สรุปทุกการพัฒนาไว้ขั้นต่ำ 1 เอกสาร และไม่ลงที่ต้องพึ่ง framework ภายนอก*

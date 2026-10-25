@@ -8,6 +8,7 @@
 .agent_memory.json
 agent-events.jsonl
 agent_playbook.json
+agent_evals.json
 
 # ---- generated output ----
 reports/

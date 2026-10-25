@@ -17,6 +17,7 @@ process.env.OPENROUTER_API_KEY = "sk-or-v1-mock-test-key-0000000000000000";
 process.env.AGENT_PROJECT_DIR = tmp;
 process.env.AGENT_EVENTS_FILE = path.join(tmp, "events.jsonl");
 process.env.AGENT_PLAYBOOK_FILE = path.join(tmp, "playbook.json");
+process.env.AGENT_NO_EVALS = "1"; // Circuit 3 ปิดใน test เดิม — กัน eval-reflector ยิง LLM นอกสคริปต์
 process.env.AGENT_SKILLS_FILE = path.join(tmp, "skills", "index.json");
 
 const ra = require("./research-agent.js");

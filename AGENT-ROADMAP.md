@@ -46,18 +46,22 @@ Implementation (ตามแผนที่ user อนุมัติ "ทำ�
 - [x] กันรั่ว: ชื่อ regex ^[a-z][a-z0-9_]{2,29}$ + ห้ามชน built-in + code ≤10k + ห้ามพูดถึงไฟล์ key/playbook/events
 - [x] Test: test-tools.js 13 asserts (GOOD=register+live+persist+calls, BAD=reject+rm+playbook เรียนกฎ [tools], BUILTIN ถูก block) — suite รวม 6 ไฟล์ 74 asserts ผ่านหมด
 
-### วงจร 3: Task → Eval (Checklist ต่ำชิ้นงาน) — ต้นแบบ: กระบวนการ mini-SWE-agent + SWE-bench
-- [ ] Task-type เดิม → เก็บ checklist + expected-output ตัวอย่าง ใน playbook (ย่อแปลงเป็น ปุ่ม “ทดสอบซ้ำกันยัง”)
-- [ ] KPI หลัก: 📉 tokens/งานสำเร็จ + targeted task success rate ที่วัดได้ (eval จะ hotspot)
+### วงจร 3: Task → Eval (Checklist ต่อชิ้นงาน) — ✅ เสร็จแล้ว (2026-10-25, version 14) ต้นแบบ: กระบวนการ mini-SWE-agent + SWE-bench
+- [x] งานสำเร็จ (outcome ok + **≥3 steps** + ใช้ tool) → Eval curator 1 LLM call → format `PATTERN: keywords | CHECK: step1; step2; step3` → บันทึก `agent_evals.json` (cap 20, evict usage ต่ำสุด)
+- [x] Dedupe code-only (Jaccard keywords ≥0.5 → bump usageCount ไม่สร้าง entry ใหม่) + keywords แยก regex รองรับไทย `[a-zA-Z0-9\u0E00-\u0E7F]{2,}`
+- [x] Inject งานคล้ายกันถัดไป: intersection คำ ×10 + usageCount → top ≤3 ในงบ ~300 tok ต่อท้าย playbook injection (orchestrator เท่านั้น) + log `🎯 eval hints injected`
+- [x] Off switch สด ๆ: `AGENT_NO_EVALS=1` (อ่าน process.env ทุกครั้ง → toggle runtime ได้ ใช้ใน mock tests เดิมทั้ง 5 ไฟล์) + CLI `--evals` + `GET /api/evals` + badge 🎯 ใน UI
+- [x] KPI เริ่มได้จริง: `evalSummary()` สรุป ok runs + avgTok/run (ต่อยอด KPI 📉 tokens/งานสำเร็จ — ให้วัดผลของ eval ว่าลด token ลงจริง); test-evals.js 8 asserts (สร้าง eval/reflector แม่นยำ 1 ครั้ง/inject hints/dedupe bump/งานสั้นข้าม/off switch ปิดจริง)
+- [x] คิวงาน: task queue ลึก 1 ใน server.js แทนการ 429 ทันที (SSE event `queued` + chip ⏳ ใน UI + guard `if (!res.headersSent)` กัน ERR_HTTP_HEADERS_SENT เมื่อ runTask ซ้อนกัน); คิวเต็ม (2 ชิ้น) ยัง 429 พร้อมข้อความ
 
-### Code Mode (ทำ Agent เขียนโค้ดเลิสที่ไม่พึ่งพโมแดลแพง — SWE-agent ACI philosophy)
+### Code Mode (ทำ Agent เขียนโค้ดเล็มงบ — ไม่พึ่งพาโมเดลแพง — SWE-agent ACI philosophy)
 - [ ] `run_command` (cwd โปรเจ็คต์, timeout 15s, sandbox จะแชร์จาก js_eval)
 - [ ] `file_read(path, offset, limit)` แบบมีบรรทัดเลข + `grep(pattern, path, include)` (ใช้ Node fs เดินไฟล์เอง)
 - [ ] `edit(path, oldString, newString)` exact-match (match ไม่พบ = fail อย่าเขียนทั้งไฟล์ เหมือน ACI ของ SWE-agent)
 - [ ] Rule: “แก้แล้วต้องรันจริง — ห้ามบอก “เสร็จ” โดยไม่มี evidence”(verification gate) + critic pass (LLM รอบ 2 ว่าเป็น reviewer)
 - [ ] อ่าน/guard AGENTS.md ของโปรเจ็คห้ามิ่งชิง (project rule injection)
 
-## 4.  ข้อควรระวัง/Context Plan ของทุกวงจร (กันตัวเองพัง)
+## 4. ⚙️ กติการันตีของทุกวงจร (กันตัวเองพัง)
 1. playbook inject **≤5 กฎ × ~80 tok** — เกินให้ unique usageCount นำ (never添 open-end)
 2. Reflector เพิ่ง 1 call/task (give up power) — ห้ามวนๆ reflective loop กิน token เปลา
 3. Curator ต้อง **โค้ด string-match** — ไม่ใช้ LLM (กัน cost บวม)
@@ -87,5 +91,5 @@ Implementation (ตามแผนที่ user อนุมัติ "ทำ�
 | Letta/MemGPT | แยก main context/external memory, self-editing | github.com/letta-ai/letta |
 
 ---
-**ลำดับทำที่แนะนำ:** วงจร 1 MVP → เทส mock → ให้ user ทดสอบจริง → วงจร 2 → Code Mode → วงจร 3
+**ลำดับทำที่แนะนำ:** ~~วงจร 1 MVP → เทส mock → ให้ user ทดสอบจริง → วงจร 2 → Code Mode → วงจร 3~~ **ครบทั้ง 3 วงจรแล้ว (v14)** — งานถัดไปย้ายไป idea bank ด้านบน
 **กติกากลาง:** ทุก feature ใหม่ต้องตอบได้ว่า "ช่วยโมเดลธรรมดาเก่งขึ้นได้อย่างไร และกิน token เพิ่มเท่าไหร่"

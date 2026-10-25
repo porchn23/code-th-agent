@@ -821,6 +821,135 @@ function printPlaybook() {
 }
 
 // ---------------------------------------------------------------
+// วงจร 3: Task→Eval — งานที่สำเร็จแบบมีขั้นตอน → ถอด checklist กลายๆ
+// (run หน้าที่งานคล้ายกัน จะได้ "จุดเริ่ม/สิ่งที่ตรวจ" ฟรี ๆ ใน system prompt)
+// ---------------------------------------------------------------
+const EVALS_FILE = process.env.AGENT_EVALS_FILE || path.join(__dirname, "agent_evals.json");
+const EVALS_CAP = 20; // กันบวมเหมือน playbook
+const EVAL_INJECT_TOK = 300;
+// สวิตช์ปิด: env AGENT_NO_EVALS=1 — อ่านสด ๆ ใน learnEvalFromRun (toggle runtime ได้)
+
+const EVAL_SYSTEM = `You are the agent's own eval curator. A task just succeeded. Write a compact reusable checklist for this TYPE of task (max 3 steps, max 140 chars total) + keywords identifying this task type. Format exactly: PATTERN: keywords | CHECK: step1; step2; step3. Output only that line.`;
+
+// แตกคำจากภาษาไทย+อังกฤษ (ทุก token ยาวเกิน 2) → เช็คความคล้ายของงาน
+const taskWords = (s) => (String(s || "").match(/[a-zA-Z0-9\u0E00-\u0E7F]{2,}/g) || []).map((w) => w.toLowerCase());
+
+function loadEvals() {
+  try {
+    const list = JSON.parse(fs.readFileSync(EVALS_FILE, "utf8"));
+    return Array.isArray(list) ? list.filter((e) => Array.isArray(e.keywords) && Array.isArray(e.check)) : [];
+  } catch { return []; }
+}
+function saveEvals(list) {
+  fs.mkdirSync(path.dirname(EVALS_FILE), { recursive: true });
+  fs.writeFileSync(EVALS_FILE, JSON.stringify(list, null, 2));
+}
+
+// jaccard ของ 2 อาร์เรย์คำ — ใช้ dedupe checklist ซ้ำ (โค้ดเท่านั้น ไม่ใช้ LLM)
+const jac = (a, b) => {
+  const A = new Set(a), B = new Set(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0;
+  for (const x of A) if (B.has(x)) n++;
+  return n / (A.size + B.size - n);
+};
+
+function addEval(rawKeywords, rawCheck) {
+  const keywords = [...new Set(taskWords(rawKeywords.join(" ")))].slice(0, 6);
+  const check = rawCheck.map((s) => String(s).trim()).filter(Boolean).slice(0, 3).map((s) => s.slice(0, 80));
+  const list = loadEvals();
+  const found = list.find((e) => jac(keywords, e.keywords) >= 0.5);
+  if (found) {
+    found.usageCount = (found.usageCount || 1) + 1;
+    found.lastSeen = Date.now();
+    saveEvals(list);
+    return { bumped: true, eval: found };
+  }
+  const entry = { id: `e-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, keywords, check, usageCount: 1, lastSeen: Date.now() };
+  list.push(entry);
+  if (list.length > EVALS_CAP)
+    list.sort((a, b) => b.usageCount * 1e12 + b.lastSeen - (a.usageCount * 1e12 + a.lastSeen)), saveEvals(list.slice(0, EVALS_CAP));
+  else saveEvals(list);
+  return { bumped: false, eval: entry };
+}
+
+// เลือก eval ที่ "งานคล้ายกัน" ด้วย intersection ของคำ + budget ~EVAL_INJECT_TOK
+function loadEvalsForTask(task) {
+  const ws = taskWords(task);
+  const scored = loadEvals()
+    .map((e) => { const inter = e.keywords.filter((k) => ws.includes(k)).length; return inter ? { e, s: inter * 10 + Math.min(e.usageCount, 5) } : null; })
+    .filter(Boolean)
+    .sort((a, b) => b.s - a.s)
+    .slice(0, 3);
+  if (!scored.length) return "";
+  const lines = [];
+  for (const { e } of scored) {
+    const line = `- When done: ${e.check.join("; ")} (task type: ${e.keywords.join(", ")})`;
+    if (estTok(lines.join("\n") + line) > EVAL_INJECT_TOK) break;
+    lines.push(line);
+  }
+  if (!lines.length) return "";
+  return `\n\nEval hints (how similar past tasks were verified):\n${lines.join("\n")}`;
+}
+
+// Eval curator — 1 LLM call เท่านั้น (mirror ของ reflectOnRun แต่ฝั่งงานสำเร็จ)
+async function evalOnRun(userTask) {
+  const msg = await callLLM({
+    model: CONFIG.model,
+    messages: [
+      { role: "system", content: EVAL_SYSTEM },
+      { role: "user", content: `Task: ${truncate(String(userTask || ""), 200)}` },
+    ],
+    temperature: 0,
+    max_tokens: 120,
+  });
+  const m = /PATTERN:\s*(.+?)\s*\|\s*CHECK:\s*(.+)/s.exec(String(msg.content || "").trim());
+  if (!m) return null;
+  const keywords = taskWords(m[1]).slice(0, 6);
+  const check = m[2].split(";").map((s) => s.trim()).filter(Boolean).slice(0, 3).map((s) => s.slice(0, 80));
+  if (!keywords.length || !check.length) return null;
+  return { keywords, check };
+}
+
+// Gate: งานสำเร็จจริง + มีเครื่องมือ + ไม่ใช่งานเล็ก (steps>=3) — กัน checklist ป่องโดยใช้เปล่า
+// (อ่าน env สด ๆ ทุกครั้ง — ให้ toggle runtime ได้ เช่น ใน tests)
+function learnEvalFromRun(ctx, userTask, depth) {
+  if (process.env.AGENT_NO_EVALS === "1" || depth !== 0) return Promise.resolve();
+  if (ctx.outcome !== "ok" || (ctx.stepsUsed || 0) < 3 || !Object.keys(ctx.tools || {}).length) return Promise.resolve();
+  return (async () => {
+    try {
+      const r = await evalOnRun(userTask);
+      if (r) {
+        const res = addEval(r.keywords, r.check);
+        ctx.log(C.dim, `  🎯 eval ${res.bumped ? `⬆ bump ×${res.eval.usageCount}` : "➕ new checklist"}: ${res.eval.check.join(" → ").slice(0, 90)}`);
+      }
+    } catch (e) {
+      ctx.log(C.red, `  🎯 eval skipped (non-fatal): ${e.message}`);
+    }
+  })();
+}
+
+function evalSummary() {
+  let ok = 0, totalTok = 0;
+  try {
+    for (const line of fs.readFileSync(EVENTS_FILE, "utf8").split("\n").filter(Boolean)) {
+      try { const ev = JSON.parse(line); if (ev.outcome === "ok") { ok++; totalTok += ev.tok || 0; } } catch { /* โยนบรรทัดเสมอเมื่อได้รู้ */ }
+    }
+  } catch { /* ไม่มี log ก็ไม่ต้องฟ้อง */ }
+  return {
+    evals: loadEvals().map(({ keywords, check, usageCount, lastSeen }) => ({ keywords, check, usageCount, lastSeen })),
+    runs: { ok, avgTok: ok ? Math.round(totalTok / ok) : 0 },
+  };
+}
+
+function printEvals() {
+  const s = evalSummary();
+  console.log(`🎯 Evals — ${s.evals.length} checklists (ok runs: ${s.runs.ok}, avg ~${s.runs.avgTok} tok/run)\n`);
+  for (const e of s.evals)
+    console.log(`  (${e.keywords.join(", ")})\n     ✓ ${e.check.join("\n     ✓ ")}\n        ×${e.usageCount} uses`);
+}
+
+// ---------------------------------------------------------------
 // หา API key: env -> ไฟล์ .openrouter_key -> ถามผู้ใช้แล้วบันทึกไว้
 // ---------------------------------------------------------------
 async function getApiKey() {
@@ -1147,6 +1276,11 @@ async function agentLoopCore(userTask, {
       system += `\n\n${pb}`;
       ctx.log(C.dim, `📓 playbook injected (~${estTok(pb)} tok)`);
     }
+    const ev = loadEvalsForTask(userTask); // วงจร 3 — checklist จากงานคล้ายที่ผ่านมา
+    if (ev) {
+      system += ev;
+      ctx.log(C.dim, `🎯 eval hints injected (~${estTok(ev)} tok)`);
+    }
   }
 
   // messages = context ทั้งหมดที่โมเดลมองเห็น (system -> history -> user -> tool results -> ...)
@@ -1229,7 +1363,7 @@ function finalizeLearning(ctx, userTask, depth) {
   try {
     if (!ctx.outcome) ctx.outcome = ctx.signal?.aborted ? "stopped" : "crashed";
   } catch {}
-  try { LAST_LEARN = learnFromRun(ctx, userTask); } catch { /* ห้ามพังเพราะสะท้อน */ }
+  try { LAST_LEARN = Promise.all([learnFromRun(ctx, userTask), learnEvalFromRun(ctx, userTask, depth)]); } catch { /* ห้ามพังเพราะสะท้อน */ }
 }
 
 // agentLoop = agentLoopCore + Circuit 1 learn-hook ที่ห้ามพลาด (จับทั้ง return ปกติและ throw เช่น กด Stop)
@@ -1296,7 +1430,8 @@ async function runToolCalls(toolCalls, ctx) {
 // ENTRY POINT — รับงานจากผู้ใช้ แล้วส่งให้ orchestrator
 // ---------------------------------------------------------------
 async function main() {
-  // CLI: โชว์ playbook ที่ agent เรียนไว้โดยไม่เสียค่า token (ไม่ต้องมี key)
+  // CLI: โชว์ playbook/evals ที่ agent เรียนไว้โดยไม่เสียค่า token (ไม่ต้องมี key)
+  if (process.argv.includes("--evals")) return printEvals();
   if (process.argv.includes("--playbook")) return printPlaybook();
   CONFIG.apiKey = await getApiKey();
   const task = process.argv.slice(2).join(" ");
@@ -1319,4 +1454,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { CONFIG, agentLoop, getApiKey, log, C, truncate, loadPlaybookForTask, addRule, loadPlaybook, playbookSummary, reflectOnRun, learnFromRun, getTools, CODE_TOOLS, SUBAGENT_TOOLS, loadSkills, whenLearned: () => LAST_LEARN };
+module.exports = { CONFIG, agentLoop, getApiKey, log, C, truncate, loadPlaybookForTask, addRule, loadPlaybook, playbookSummary, reflectOnRun, learnFromRun, getTools, CODE_TOOLS, SUBAGENT_TOOLS, loadSkills, loadEvalsForTask, addEval, loadEvals, evalSummary, whenLearned: () => LAST_LEARN };

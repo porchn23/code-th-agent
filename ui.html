@@ -272,6 +272,7 @@ function entryNode(e) {
     if (c.step) parts.push('⚡ <b>' + c.step + '</b> steps');
     for (const k in TOOL_ICONS) if (c[k]) parts.push(TOOL_ICONS[k] + ' <b>' + c[k] + '</b> ' + TOOL_LABELS[k]);
     if (c.custom) parts.push('🧩 <b>' + c.custom + '</b> custom');
+    if (c.queued) parts.push('⏳ queued');
     if (c.tok) parts.push('<span class="tok">⛁ <b>' + c.tok.toLocaleString() + '</b> tok</span>');
     if (c.errs) parts.push('<span class="e">⚠ <b>' + c.errs + '</b> errors</span>');
     const d = document.createElement("div"); d.className = "msg-agent";
@@ -400,6 +401,42 @@ async function refreshSk() {
 }
 refreshSk();
 
+/* ================= eval badge (Circuit 3 — Task→Eval) ================= */
+const evBadge = document.createElement("span"); // วางต่อท้าย skBadge แบบ js-only เพื่อไม่ยุ่ง HTML
+evBadge.className = "ctl pb-badge";
+evBadge.id = "evBadge";
+evBadge.title = "evals: checklist จากงานที่สำเร็จ (คลิกดู)";
+evBadge.textContent = "🎯 …";
+skBadge.after(evBadge);
+let evPopover = null;
+function closeEv() { if (evPopover) { evPopover.remove(); evPopover = null; document.removeEventListener("click", closeEv); } }
+evBadge.onclick = async () => {
+  if (evPopover) return closeEv();
+  try {
+    const s = await (await fetch("/api/evals")).json();
+    evPopover = document.createElement("div"); evPopover.className = "pb-pop";
+    evPopover.innerHTML =
+      '<div class="h">🎯 evals (' + s.evals.length + ' checklists)</div>' +
+      '<div class="r muted">ok runs: ' + s.runs.ok + ' · avg ~' + s.runs.avgTok + ' tok/run</div>' +
+      s.evals.map((e) => '<div class="r"><i>' + esc(e.keywords.join(", ")) + '</i><br> ✓ ' +
+                        e.check.map(esc).join(' ✓ ') + ' <span class="u">×' + (e.usageCount || 1) + '</span></div>').join("") +
+      (s.evals.length ? "" : '<div class="r muted">ยังไม่มี — agent จะเก็บ checklist เองเมื่องานสำเร็จแบบมีขั้นตอน</div>');
+    document.body.appendChild(evPopover);
+    const b = evBadge.getBoundingClientRect();
+    evPopover.style.top = (b.bottom + 8) + "px";
+    evPopover.style.right = (innerWidth - b.right) + "px";
+    setTimeout(() => document.addEventListener("click", closeEv, { once: true }));
+  } catch { evBadge.textContent = "🎯 ?"; }
+};
+async function refreshEv() {
+  try {
+    const s = await (await fetch("/api/evals")).json();
+    evBadge.textContent = "🎯 " + s.evals.length;
+    evBadge.title = "evals: " + s.evals.length + " checklists · " + s.runs.ok + " ok runs (คลิกดู)";
+  } catch {}
+}
+refreshEv();
+
 /* ================= load models ================= */
 (async () => {
   try {
@@ -475,6 +512,7 @@ async function run() {
         const ev = raw.replace(/^data: /, "").trim();
         if (!ev.startsWith("{")) continue;
         const { type, data } = JSON.parse(ev);
+        if (type === "queued") { actE.counts.queued = 1; updateEntry(actE); } // โดนพาเข้าคิว — งานก่อนหน้ายังรันอยู่
         if (type === "log" && data) { tallyLine(actE, data); updateEntry(actE); }
         if (type === "answer-reset" && liveE) { liveE.text = ""; updateEntry(liveE); }
         if (type === "answer-delta") {
@@ -506,7 +544,7 @@ async function run() {
   } finally {
     running = false; aborter = null;
     go.disabled = false; $("stop").hidden = true;
-    saveSessions(); renderChat(); refreshPb(); refreshSk(); $("task").focus();
+    saveSessions(); renderChat(); refreshPb(); refreshSk(); refreshEv(); $("task").focus();
   }
 }
 go.onclick = run;

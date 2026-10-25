@@ -11,6 +11,7 @@
  */
 process.env.AGENT_EVENTS_FILE = require("node:path").join(require("node:os").tmpdir(), "cm-ev-test.jsonl");
 process.env.AGENT_PLAYBOOK_FILE = require("node:path").join(require("node:os").tmpdir(), "cm-pb-test.jsonl");
+process.env.AGENT_NO_EVALS = "1"; // Circuit 3 ปิดใน test เดิม — กัน eval-reflector ยิง LLM นอกสคริปต์
 process.env.AGENT_PROJECT_DIR = require("node:path").join(require("node:os").tmpdir(), "cm-proj-" + Date.now());
 const fs = require("node:fs");
 const PROJ = process.env.AGENT_PROJECT_DIR;

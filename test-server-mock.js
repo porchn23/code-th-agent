@@ -17,6 +17,7 @@
 process.env.OPENROUTER_API_KEY = "sk-mock-test";
 process.env.AGENT_EVENTS_FILE = require("node:path").join(require("node:os").tmpdir(), "agent-ev-test.jsonl");
 process.env.AGENT_PLAYBOOK_FILE = require("node:path").join(require("node:os").tmpdir(), "agent-pb-test.jsonl");
+process.env.AGENT_NO_EVALS = "1"; // Circuit 3 ปิดใน test เดิม — กัน eval-reflector ยิง LLM นอกสคริปต์
 
 // à¸ˆà¸±à¸š console.log "à¸•à¸±à¸§à¸ˆà¸£à¸´à¸‡" à¹„à¸§à¹‰à¸à¹ˆà¸­à¸™ à¹€à¸žà¸·à¹ˆà¸­à¸¢à¸·à¸™à¸¢à¸±à¸™à¸§à¹ˆà¸² server à¹„à¸¡à¹ˆà¸¡à¸² patch à¸¡à¸±à¸™
 const PRISTINE_CONSOLE_LOG = console.log;
@@ -202,10 +203,11 @@ async function waitForIdle(stableMs = 900, maxMs = 25000) {
     r.end(JSON.stringify({ task: "Summarize WebGPU support on Chrome and Firefox" }));
     setTimeout(() => resolve({ status: "timeout" }), 8000);
   });
-  const [p, q] = await Promise.all([rawPost(), rawPost()]);
-  console.log("concurrent guard (raw):", p.status, "/", q.status, "(expect one 200, one 429)");
-  check("3 concurrent guard à¸•à¸­à¸š 429 à¸ªà¸³à¸«à¸£à¸±à¸š request à¸—à¸µà¹ˆ 2",
-    [p.status, q.status].includes(200) && [p.status, q.status].includes(429), `${p.status}/${q.status}`);
+  const [p, q, r] = await Promise.all([rawPost(), rawPost(), rawPost()]);
+  console.log("concurrent guard (raw):", p.status, "/", q.status, "/", r.status, "(expect two 200 [one queued], one 429 when queue full)");
+  check("3 concurrent guard → คิวลึก 1 (2×200, คิวเต็มได้ 429)",
+    [p.status, q.status, r.status].filter((s) => s === 200).length === 2 &&
+    [p.status, q.status, r.status].filter((s) => s === 429).length === 1, `${p.status}/${q.status}/${r.status}`);
 
   // 4) server à¸•à¹‰à¸­à¸‡à¹„à¸¡à¹ˆ patch console.log à¹à¸šà¸š global
   check("4 console.log à¹„à¸¡à¹ˆà¸–à¸¹à¸ patch (à¹„à¸¡à¹ˆà¸¡à¸µ restore à¸‹à¹‰à¸­à¸™à¸à¸±à¸™)", console.log === PRISTINE_CONSOLE_LOG);

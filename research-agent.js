@@ -413,10 +413,15 @@ function toolJsEval({ code }, signal) {
 const PROJECT_ROOT = process.env.AGENT_PROJECT_DIR ? path.resolve(process.env.AGENT_PROJECT_DIR) : __dirname;
 const DANGER_RE = /(\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)|\bdel\s+\/[sqf]\s|\brmdir\s+\/s|\bformat\s+\w:|\bshutdown\b|:\|\s*mkfs\w*\b|\bdd\s+if=|\btaskkill\s+\/f\b|\bdiskpart\b|\b Remove-Item .*-Recurse\b)/i;
 
-// safe path: จำกัดทุก tool ไฟล์ให้อยู่ใต้ PROJECT_ROOT + แบนไฟล์ลับ/รัฐของระบบ
-function safeProjectPath(rel) {
-  const abs = path.resolve(PROJECT_ROOT, String(rel || ""));
-  if (abs !== PROJECT_ROOT && !abs.startsWith(PROJECT_ROOT + path.sep)) {
+// รากประจำ run: server เลือก workspace ไหน → runTool ทุกตัวใช้ root ของ workspace นั้น
+// (ไม่มี ctx.root = ใช้รากหลักของตัว agent เหมือนเดิม)
+const rootOf = (ctx) => (ctx && ctx.root) || PROJECT_ROOT;
+
+// safe path: จำกัดทุก tool ไฟล์ให้อยู่ใต้ "รากประจำ run" + แบนไฟล์ลับ/รัฐของระบบ
+function safeProjectPath(rel, root) {
+  const R = root || PROJECT_ROOT;
+  const abs = path.resolve(R, String(rel || ""));
+  if (abs !== R && !abs.startsWith(R + path.sep)) {
     throw new Error("Path escapes the project directory");
   }
   if (/openrouter_key|node_modules|\.git|\.agent_memory|agent_playbook\.json|agent-events\.jsonl/.test(abs)) {
@@ -426,24 +431,26 @@ function safeProjectPath(rel) {
 }
 
 const TEXT_EXT = /\.(md|txt|json|csv|js|mjs|cjs|ts|jsx|tsx|py|sh|bat|ps1|yml|yaml|html?|css)$/i;
-function toolFileRead({ path: rel }) {
-  const abs = safeProjectPath(rel);
+function toolFileRead({ path: rel }, ctx) {
+  const abs = safeProjectPath(rel, rootOf(ctx));
   if (!TEXT_EXT.test(abs)) throw new Error("Only text file extensions are allowed (md/txt/json/csv/js/ts/jsx/html/css/py/sh/bat/ps1/yml)");
   if (!fs.existsSync(abs)) throw new Error(`File not found: ${rel}`);
   const text = fs.readFileSync(abs, "utf8");
   return `### FILE ${rel}\n${truncate(text, 20000)}`;
 }
 
-function toolFileWrite({ path: rel, content }) {
-  const abs = safeProjectPath(rel);
-  if (!abs.startsWith(CONFIG.reportsDir + path.sep)) {
+function toolFileWrite({ path: rel, content }, ctx) {
+  const R = rootOf(ctx);
+  const abs = safeProjectPath(rel, R);
+  const reportsDir = path.join(R, "reports");
+  if (!abs.startsWith(reportsDir + path.sep)) {
     throw new Error("Writes are only allowed inside reports/ (e.g. reports/my-report.md)");
   }
   if (!TEXT_EXT.test(abs)) throw new Error("Only text file extensions are allowed (md/txt/json/csv/js/ts/jsx/html/css/py/sh/bat/ps1/yml)");
-  fs.mkdirSync(CONFIG.reportsDir, { recursive: true });
+  fs.mkdirSync(reportsDir, { recursive: true });
   const c = String(content ?? "");
   fs.writeFileSync(abs, c, "utf8");
-  return `Saved ${c.length} chars to ${path.relative(__dirname, abs).replace(/\\/g, "/")} (${path.basename(abs)})`;
+  return `Saved ${c.length} chars to ${path.relative(R, abs).replace(/\\/g, "/")} (${path.basename(abs)})`;
 }
 
 // ---------------------------------------------------------------
@@ -564,25 +571,30 @@ function runCustomTool(name, args, signal) {
 // CODE MODE tools — รันคำสั่ง / แก้ไฟล์แบบ exact-match / grep โปรเจ็คต์
 // หลักการ SWE-agent: ผู้โทร (โมเดล) ทำพลาดได้ยากที่สุดที่เท่าที่ออกแบบได้
 // ---------------------------------------------------------------
-function toolRunCommand({ command, timeoutMs }) {
+function toolRunCommand({ command, timeoutMs }, ctx) {
   const cmd = String(command || "");
   if (!cmd.trim()) throw new Error("command required");
   if (DANGER_RE.test(cmd)) throw new Error("Blocked: potentially destructive command");
   const { exec } = require("node:child_process");
   const t = Math.min(Math.max(Number(timeoutMs) || 15000, 2000), 60000);
+  const t0 = Date.now();
   return new Promise((resolve) => {
-    exec(cmd, { cwd: PROJECT_ROOT, windowsHide: true, timeout: t, maxBuffer: 1024 * 1024, shell: true }, (err, stdout, stderr) => {
+    exec(cmd, { cwd: rootOf(ctx), windowsHide: true, timeout: t, maxBuffer: 1024 * 1024, shell: true }, (err, stdout, stderr) => {
       const out = scrubSecrets(String(stdout || "").slice(0, 6000));
       const to = scrubSecrets(String(stderr || "").slice(0, 2000));
       const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
       const tail = err && err.killed ? "…[killed on timeout]" : "";
-      resolve(`### RUN: ${cmd}\nexit ${code}${tail}\n${out ? "--- stdout ---\n" + out : ""}${to ? "--- stderr ---\n" + to : ""}`.trim());
+      const result = `### RUN: ${cmd}\nexit ${code}${tail}\n${out ? "--- stdout ---\n" + out : ""}${to ? "--- stderr ---\n" + to : ""}`.trim();
+      // v16 run panel: ส่งผลการรันแบบมีโครงสร้างไป UI (SSE type 'run') — log เดิมไม่กระทบ
+      try { ctx?.onRun?.({ cmd, code, ms: Date.now() - t0, text: truncate(String(stdout || "") + (to ? "\n[stderr] " + to : ""), 2000) }); } catch { /* แผงรันพังไม่กระทบ run */ }
+      resolve(result);
     });
   });
 }
 
-function toolFileEdit({ path: rel, oldString, newString, replace_all }) {
-  const abs = safeProjectPath(rel);
+function toolFileEdit({ path: rel, oldString, newString, replace_all }, ctx) {
+  const R = rootOf(ctx);
+  const abs = safeProjectPath(rel, R);
   if (!TEXT_EXT.test(abs)) throw new Error("Only text files can be edited");
   if (!fs.existsSync(abs)) throw new Error(`File not found: ${rel} (read it first with file_read)`);
   const oldStr = String(oldString ?? "");
@@ -598,10 +610,11 @@ function toolFileEdit({ path: rel, oldString, newString, replace_all }) {
   const updated = replace_all ? text.split(oldStr).join(newStr) : text.replace(oldStr, newStr);
   fs.writeFileSync(abs, updated, "utf8");
   const replaced = (replace_all ? count : 1);
-  return `Edited ${path.relative(PROJECT_ROOT, abs).replace(/\\/g, "/")}: replaced ${replaced} occurrence${replaced > 1 ? "s" : ""} (${text.length} → ${updated.length} chars)`;
+  return `Edited ${path.relative(R, abs).replace(/\\/g, "/")}: replaced ${replaced} occurrence${replaced > 1 ? "s" : ""} (${text.length} → ${updated.length} chars)`;
 }
 
-function toolFileGrep({ pattern, include }) {
+function toolFileGrep({ pattern, include }, ctx) {
+  const R = rootOf(ctx);
   const re = new RegExp(String(pattern || ""), "i");
   const glob = include ? new RegExp("^" + String(include).replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*\*/g, "␀").replace(/\*/g, "[^.]*").replace(/␀/g, ".+") + "$", "i") : null;
   const hits = [];
@@ -615,14 +628,14 @@ function toolFileGrep({ pattern, include }) {
       let lines; try { lines = fs.readFileSync(p, "utf8").split(/\r?\n/); } catch { continue; }
       for (let i = 0; i < lines.length; i++) {
         if (re.test(lines[i])) {
-          hits.push(`${path.relative(PROJECT_ROOT, p).replace(/\\/g, "/")}:${i + 1}: ${truncate(lines[i].trim(), 200)}`);
+          hits.push(`${path.relative(R, p).replace(/\\/g, "/")}:${i + 1}: ${truncate(lines[i].trim(), 200)}`);
           if (hits.length >= 60) return true;
         }
       }
     }
     return false;
   };
-  const full = walk(PROJECT_ROOT);
+  const full = walk(R);
   if (!hits.length) return `No matches for /${pattern}/`;
   return `### GREP /${pattern}/ (${hits.length} hits${full ? ", truncated" : ""})\n${hits.join("\n")}`;
 }
@@ -1044,24 +1057,25 @@ function addBackup(abs, rec) {
     fs.mkdirSync(dir, { recursive: true });
     const bk = path.join(dir, "f" + rec.files.length + ".bak");
     fs.writeFileSync(bk, buf);
-    rec.files.push({ rel: path.relative(PROJECT_ROOT, abs).replace(/\\/g, "/"), backup: bk });
+    rec.files.push({ rel: path.relative(rec.root, abs).replace(/\\/g, "/"), backup: bk });
   } catch { /* snapshot ต้องไม่มีสิทธิ์ทำ run พัง */ }
 }
 // snapshot ไฟล์เดียว (ก่อน file_edit/file_write)
 function snapshotOne(abs, kind, ctx) {
-  const rec = { id: "ck-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), runId: ctx.runId, kind, files: [] };
+  const rec = { id: "ck-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), runId: ctx.runId, kind, files: [], root: rootOf(ctx) };
   addBackup(abs, rec);
   return rec.files.length ? rec : null;
 }
 // snapshot ทั้งโปรเจ็กต์ (ก่อน run_command — ไม่รู้ล่วงหน้าว่าคำสั่งจะแก้อะไร)
 function snapshotProject(ctx) {
-  const rec = { id: "ck-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), runId: ctx.runId, kind: "run", files: [] };
+  const R = rootOf(ctx);
+  const rec = { id: "ck-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), ts: Date.now(), runId: ctx.runId, kind: "run", files: [], root: R };
   try {
     const walk = (dir) => {
       for (const name of fs.readdirSync(dir)) {
         if (rec.files.length >= 120) return;
         const abs = path.join(dir, name);
-        const relw = path.relative(PROJECT_ROOT, abs);
+        const relw = path.relative(R, abs);
         if (CKPT_SKIP.test(relw)) continue;
         let st = null;
         try { st = fs.statSync(abs); } catch { continue; }
@@ -1069,7 +1083,7 @@ function snapshotProject(ctx) {
         if (TEXT_EXT.test(abs) && st.size <= 300000) addBackup(abs, rec);
       }
     };
-    walk(PROJECT_ROOT);
+    walk(R);
   } catch { /* ไม่มีข้อกังวลเรื่อง fail ที่นี่ */ }
   return rec.files.length ? rec : null;
 }
@@ -1079,7 +1093,7 @@ function checkpointBefore(name, args, ctx) {
     if (process.env.AGENT_NO_CHECKPOINTS === "1" || ctx.depth !== 0) return;
     let rec = null;
     if ((name === "file_edit" || name === "file_write") && args && args.path)
-      rec = snapshotOne(safeProjectPath(String(args.path)), "file", ctx);
+      rec = snapshotOne(safeProjectPath(String(args.path), rootOf(ctx)), "file", ctx);
     else if (name === "run_command") rec = snapshotProject(ctx);
     if (!rec) return;
     const list = loadCkpts();
@@ -1130,9 +1144,10 @@ function diffText(aText, bText) {
 function diffCheckpoint(id) {
   const rec = loadCkpts().find((r) => r.id === id);
   if (!rec) throw new Error("checkpoint not found: " + id);
+  const R = rec.root || PROJECT_ROOT; // record เก่า (v15) ไม่มี root → ใช้รากหลัก
   return rec.files.map(({ rel, backup }) => {
     const before = fs.existsSync(backup) ? fs.readFileSync(backup, "utf8") : "";
-    const abs = path.resolve(PROJECT_ROOT, rel);
+    const abs = path.resolve(R, rel);
     const after = fs.existsSync(abs) ? fs.readFileSync(abs, "utf8") : "";
     return { rel, diff: diffText(before, after) };
   });
@@ -1140,11 +1155,12 @@ function diffCheckpoint(id) {
 function restoreCheckpoint(id) {
   const rec = loadCkpts().find((r) => r.id === id);
   if (!rec) throw new Error("checkpoint not found: " + id);
+  const R = rec.root || PROJECT_ROOT;
   const restored = [];
   for (const { rel, backup } of rec.files) {
     if (!fs.existsSync(backup)) continue;
-    const abs = path.resolve(PROJECT_ROOT, rel);
-    if (!abs.startsWith(PROJECT_ROOT + path.sep)) continue; // กัน path escape
+    const abs = path.resolve(R, rel);
+    if (!abs.startsWith(R + path.sep)) continue; // กัน path escape
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.copyFileSync(backup, abs);
     restored.push(rel);
@@ -1402,11 +1418,11 @@ async function runTool(name, args, ctx) {
   if (name === "get_datetime") return toolGetDatetime();
   if (name === "calculator") return toolCalculator(args);
   if (name === "js_eval") return toolJsEval(args, ctx.signal);
-  if (name === "file_read") return toolFileRead(args);
-  if (name === "file_write") return toolFileWrite(args);
-  if (name === "run_command") return toolRunCommand(args);
-  if (name === "file_edit") return toolFileEdit(args);
-  if (name === "file_grep") return toolFileGrep(args);
+  if (name === "file_read") return toolFileRead(args, ctx);
+  if (name === "file_write") return toolFileWrite(args, ctx);
+  if (name === "run_command") return toolRunCommand(args, ctx);
+  if (name === "file_edit") return toolFileEdit(args, ctx);
+  if (name === "file_grep") return toolFileGrep(args, ctx);
   if (name === "memory_save") return toolMemorySave(args);
   if (name === "memory_recall") return toolMemoryRecall(args);
   if (name === "save_plan") {
@@ -1456,6 +1472,7 @@ async function agentLoopCore(userTask, {
   noBanner = false, temp = null, history = [], onDelta = null,
   onLog = null, signal = null, mode = "research",
   planMode = false, approvedPlan = null, onPlan = null,
+  root = null, onRun = null,
 } = {}) {
   const tools2 = tools ?? getTools(mode); // โหมด code = เพิ่ม run_command/file_edit/file_grep
   const tag = depth > 0 ? `${C.dim}[sub d${depth}]${C.reset} ` : "";
@@ -1477,6 +1494,8 @@ async function agentLoopCore(userTask, {
     // Circuit 2: อ้างอิงชุด tool ของ run นี้ (tool_create สำเร็จ = push spec เข้านี่แบบ live)
     toolsRef: tools2,
     onPlan, // Tier 1 plan mode: save_plan/plan_done → callback (server ส่ง SSE ไป UI)
+    root: root ? path.resolve(root) : null, // v16 workspace: run นี้ทำงานในโปรเจค/วงจรไหน (null = ตัว agent เอง)
+    onRun, // v16 run panel: ผล run_command จริง ๆ ส่งให้ UI แสดงเป็นแผง
   };
   LAST_CTX = ctx; // ให้ wrapper (agentLoop) เรียนรู้จาก ctx ของรันนี้ได้แม้ throw กลางทาง
 

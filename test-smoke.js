@@ -15,6 +15,7 @@
  */
 
 process.env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "sk-smoke-test-placeholder";
+process.env.AGENT_NO_AUTH = "1"; // v16: smoke ไม่ทำ login — ปิด auth ให้ /api/* เดินเลย
 
 const { spawn } = require("node:child_process");
 const path = require("node:path");

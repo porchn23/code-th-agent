@@ -110,6 +110,15 @@
   #stop { padding:0 18px; border-radius:11px; border:1px solid #5c2024; background:#1a0f10;
           color:#f85149; font-weight:600; cursor:pointer; font-size:14px; }
   #stop:disabled { opacity:.45; }
+  /* v16: tree drawer + run panel */
+  #treeDrawer { position:fixed; right:14px; top:78px; bottom:88px; width:min(340px,92vw);
+                background:#151a20; border:1px solid #2b333d; border-radius:12px; z-index:120;
+                display:flex; flex-direction:column; overflow:hidden; }
+  .td-head { display:flex; justify-content:space-between; align-items:center; padding:10px 12px;
+             border-bottom:1px solid #2b333d; font-size:13px; }
+  #tdBody { flex:1; overflow:auto; padding:6px; font-size:12.5px; }
+  details.runbox { border:1px solid #2b333d; border-radius:8px; padding:5px 9px; margin-top:5px;
+                   font-size:12px; background:#10141a; }
 </style>
 </head>
 <body>
@@ -127,7 +136,11 @@
         <div class="name">Research — multi-agent</div>
         <div class="sub">streaming · memory · token thrift · tools: search / fetch / calc / files</div>
       </div>
-      <div style="display:flex; gap:7px; align-items:center;">
+      <div style="display:flex; gap:7px; align-items:center; flex-wrap:wrap;">
+        <span id="userBadge" class="ctl pb-badge" title="บัญชีผู้ใช้ — คลิกเพื่อสลับออก/จัดการสมาชิก">👤 …</span>
+        <select id="wsSel" class="ctl" title="พื้นที่ทำงาน (workspace) ที่ agent จะทำงานด้วย"><option value="">📁 …</option></select>
+        <span id="treeBtn" class="ctl pb-badge" title="ดูโครงสร้างไฟล์ของพื้นที่ทำงาน">🗂 ไฟล์</span>
+        <span id="wtBtn" class="ctl pb-badge" title="git worktrees — พื้นที่งานขนานของ repo">🌿 …</span>
         <span id="pbBadge" class="ctl pb-badge" title="playbook: กฎที่ agent เรียนจาก run ที่ล้มเหลว — คลิกดู">📓 …</span>
         <span id="skBadge" class="ctl pb-badge" title="tool library: custom tools ที่ agent สร้างเอง — คลิกดู">🧱 …</span>
         <input id="temp" class="ctl" type="number" min="0" max="2" step="0.1" value="0.7" title="temperature (ต่ำ = แม่น)">
@@ -152,6 +165,48 @@
 /* ================= state + sessions (like OpenCode) ================= */
 const $ = (id) => document.getElementById(id);
 const chat = $("chat"), go = $("go"), modelSel = $("model");
+
+/* ================= v16: auth (setup/login) — บังคับก่อนดูอะไร ---------------- */
+(async () => {
+  let me = null;
+  try { me = await (await fetch("/api/me")).json(); } catch { return; } // server ตาย → ปล่อยหน้าปกติ
+  if (me.user) { refreshUser(me.user); return; } // login อยู่แล้ว
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:#0b0e12f2;z-index:200;display:flex;align-items:center;justify-content:center";
+  const setup = !!me.setup;
+  ov.innerHTML =
+    '<div style="background:#151a20;border:1px solid #2b333d;border-radius:14px;padding:28px;width:min(360px,92vw)">' +
+    '<div class="name" style="margin-bottom:4px">' + (setup ? "🔐 สร้างบัญชีเจ้าของ (ครั้งแรก)" : "🔐 เข้าสู่ระบบ") + '</div>' +
+    '<div class="sub" style="margin-bottom:14px">' + (setup ? "บัญชีแรก = admin ทำทุกอย่างได้" : "ระบบสมาชิกเปิดใช้อยู่") + '</div>' +
+    '<input id="auName" class="ctl" style="width:100%;margin-bottom:8px" placeholder="ชื่อผู้ใช้" autocomplete="username">' +
+    (setup ? "" : '<input id="auPass" class="ctl" style="width:100%;margin-bottom:8px" type="password" placeholder="รหัสผ่าน" autocomplete="current-password">') +
+    (setup ? '<input id="auPass" class="ctl" style="width:100%;margin-bottom:8px" type="password" placeholder="รหัสผ่าน (6 ตัวขึ้นไป)" autocomplete="new-password">' : '') +
+    '<div id="auErr" style="color:#ff6b6b;font-size:12px;min-height:16px"></div>' +
+    '<button id="auGo" class="cp" style="width:100%;padding:10px;background:#58a6ff;color:#0b0e12;border-radius:8px;border:0;font-weight:700;cursor:pointer">' +
+    (setup ? "เริ่มใช้งาน" : "เข้าสู่ระบบ") + '</button></div>';
+  document.body.appendChild(ov);
+  const go = async () => {
+    try {
+      const r = await fetch(setup ? "/api/setup" : "/api/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: ov.querySelector("#auName").value, password: ov.querySelector("#auPass").value }),
+      });
+      const j = await r.json();
+      if (!r.ok) { ov.querySelector("#auErr").textContent = j.error || "ล้มเหลว"; return; }
+      location.reload();
+    } catch (e) { ov.querySelector("#auErr").textContent = e.message; }
+  };
+  ov.querySelector("#auGo").onclick = go;
+  ov.querySelectorAll("input").forEach((i) => i.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); }));
+  ov.querySelector(setup ? "#auName" : "#auPass").focus();
+})();
+async function refreshUser(u) {
+  const b = $("userBadge");
+  if (!b) return;
+  b.textContent = "👤 " + u.name;
+  b.dataset.role = u.role;
+}
+
 
 let sessions = loadSessions();
 let activeId = sessions[0] ? sessions[0].id : null;
@@ -300,7 +355,15 @@ function entryNode(e) {
     if (c.tok) parts.push('<span class="tok">⛁ <b>' + c.tok.toLocaleString() + '</b> tok</span>');
     if (c.errs) parts.push('<span class="e">⚠ <b>' + c.errs + '</b> errors</span>');
     const d = document.createElement("div"); d.className = "msg-agent";
-    d.innerHTML = '<div class="chips">' + parts.join('<span style="opacity:.4">·</span>') + '</div>';
+    let runsHtml = "";
+    if (e.runs && e.runs.length) { // v16: แผงรันคำสั่งจริง (ทุก run_command ของรอบนี้)
+      runsHtml = '<div style="margin-top:6px">' + e.runs.map((r) =>
+        '<details class="runbox"><summary style="cursor:pointer">' + (r.code === 0 ? "✅" : "❌") +
+        ' 🧪 <code>' + esc(String(r.cmd || "").slice(0, 60)) + '</code> <span class="tok">exit ' + r.code + ' · ' + (r.ms || 0) + 'ms</span></summary>' +
+        '<pre class="cblk" style="max-height:220px;overflow:auto">' + esc(r.text || "(no output)") + '</pre></details>'
+      ).join("") + '</div>';
+    }
+    d.innerHTML = '<div class="chips">' + parts.join('<span style="opacity:.4">·</span>') + '</div>' + runsHtml;
     return d;
   }
   if (e.type === "answer") {
@@ -584,6 +647,201 @@ refreshCk();
 
 evBadge.after(planBtn, ctxBadge, agBadge, ckBadge);
 
+/* ================= v16: workspaces (พื้นที่ทำงาน) ================= */
+const wsSel = $("wsSel");
+let curWs = localStorage.getItem("agent-ws") || "";
+async function refreshWs() {
+  try {
+    const { workspaces } = await (await fetch("/api/workspaces")).json();
+    wsSel.innerHTML = "";
+    for (const w of workspaces) {
+      const o = document.createElement("option");
+      o.value = w.id; o.textContent = "📁 " + w.name;
+      if (curWs === w.id) o.selected = true;
+      wsSel.appendChild(o);
+    }
+    if (!Array.from(wsSel.options).some((o) => o.selected)) { wsSel.selectedIndex = 0; curWs = wsSel.value; }
+    localStorage.setItem("agent-ws", wsSel.value);
+  } catch { wsSel.options[0].textContent = "📁 ?"; }
+}
+wsSel.onchange = () => { curWs = wsSel.value; localStorage.setItem("agent-ws", curWs); renderTree(); refreshWt(); };
+refreshWs();
+
+/* ================= v16: tree drawer (สำรวจโครงสร้างไฟล์) ================= */
+const treeBtn = $("treeBtn");
+const drawer = document.createElement("div");
+drawer.id = "treeDrawer";
+drawer.innerHTML = '<div class="td-head"><b>🗂 โครงสร้างไฟล์</b><button id="tdClose" class="ctl" style="cursor:pointer">✕</button></div><div id="tdBody"></div>';
+drawer.querySelector("#tdClose").onclick = () => drawer.remove();
+function treeQ(extra) {
+  const p = new URLSearchParams();
+  p.set("ws", curWs);
+  if (extra) for (const k in extra) p.set(k, extra[k]);
+  return p.toString();
+}
+function treeRow(item, rel) {
+  const full = rel ? rel + "/" + item.n : item.n;
+  const row = document.createElement("div");
+  row.style.cssText = "padding:3px 6px;cursor:pointer;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+  row.onmouseenter = () => (row.style.background = "#20262e");
+  row.onmouseleave = () => (row.style.background = "");
+  if (item.d) {
+    row.textContent = "📁 " + item.n;
+    row.dataset.open = "0";
+    row.onclick = async () => {
+      if (row.dataset.open === "1") { // toggle: ปิดลูกทั้งหมดที่เพิ่งโหลด
+        row.dataset.open = "0";
+        let s = row.nextSibling;
+        while (s && s.dataset && s.dataset.parent === full) { const nx = s.nextSibling; s.remove(); s = nx; }
+        row.textContent = "📁 " + item.n;
+        return;
+      }
+      row.dataset.open = "1";
+      row.textContent = "📂 " + item.n;
+      try {
+        const { items } = await (await fetch("/api/tree?" + treeQ({ path: full }))).json();
+        let anchor = row;
+        for (const it of items) {
+          const ch = treeRow(it, full);
+          ch.dataset.parent = full;
+          ch.style.paddingLeft = "18px";
+          anchor.after(ch); anchor = ch;
+        }
+      } catch (e) { row.textContent = "📁 " + item.n + " (error)"; }
+    };
+  } else {
+    row.innerHTML = "📄 " + esc(item.n) + (item.s != null ? ' <span style="opacity:.45;font-size:11px">' + (item.s > 1024 ? Math.round(item.s / 1024) + "k" : item.s) + 'b</span>' : "");
+    row.onclick = async () => { // preview ไฟล์ (เปิด modal เดิมที่ใช้ diff)
+      try {
+        const { content } = await (await fetch("/api/file?" + treeQ({ path: full }))).json();
+        const m = document.createElement("div");
+        m.style.cssText = "position:fixed;inset:0;background:#0008;z-index:150;display:flex;align-items:center;justify-content:center";
+        m.innerHTML = '<div style="background:#151a20;border:1px solid #2b333d;border-radius:12px;width:min(720px,94vw);max-height:80vh;display:flex;flex-direction:column">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px"><b>📄 ' + esc(full) + '</b><button class="ctl" style="cursor:pointer">✕</button></div>' +
+          '<pre class="cblk" style="margin:0;padding:0 14px 14px;overflow:auto">' + esc(content) + '</pre></div>';
+        m.querySelector("button").onclick = () => m.remove();
+        m.onclick = (ev) => { if (ev.target === m) m.remove(); };
+        document.body.appendChild(m);
+      } catch (e) { alert("อ่านไฟล์ไม่ได้: " + e.message); }
+    };
+  }
+  return row;
+}
+async function renderTree() {
+  const body = drawer.querySelector("#tdBody");
+  body.innerHTML = "loading…";
+  try {
+    const { items } = await (await fetch("/api/tree?" + treeQ())).json();
+    body.innerHTML = "";
+    for (const it of items) body.appendChild(treeRow(it, ""));
+  } catch (e) { body.innerHTML = '<div style="padding:8px;color:#ff6b6b">' + esc(e.message) + '</div>'; }
+}
+treeBtn.onclick = () => { document.body.appendChild(drawer); renderTree(); };
+
+/* ================= v16: git worktrees badge ================= */
+const wtBtn = $("wtBtn");
+let wtPop = null;
+function closeWt() { if (wtPop) { wtPop.remove(); wtPop = null; document.removeEventListener("click", closeWt); } }
+wtBtn.onclick = async () => {
+  if (wtPop) return closeWt();
+  try {
+    const { worktrees, error } = await (await fetch("/api/worktrees?" + treeQ())).json();
+    if (error) { wtBtn.textContent = "🌿 ไม่ใช่ git"; wtBtn.title = error; return; }
+    let createdName = "";
+    wtPop = document.createElement("div");
+    wtPop.className = "pb-pop";
+    wtPop.innerHTML =
+      '<div class="h">🌿 git worktrees (' + worktrees.length + ')</div>' +
+      '<div class="r muted">พื้นที่งานขนานของ repo — แต่ละ worktree = โฟลเดอร์แยก + กิ่งของตัวเอง</div>' +
+      worktrees.map((w) =>
+        '<div class="r" style="display:flex;gap:8px;align-items:center"><span style="flex:1">' + esc(w.path) +
+        '<br><span class="muted">' + esc(w.branch || "(detached)") + '</span></span>' +
+        (w.branch ? '<button class="wt-del ctl" data-p="' + esc(w.path) + '" style="cursor:pointer">ลบ</button>' : "") + '</div>'
+      ).join("") +
+      '<div class="r" style="display:flex;gap:6px;margin-top:6px"><input id="wtName" class="ctl" style="flex:1" placeholder="ชื่อ worktree ใหม่ เช่น feat-x">' +
+      '<button id="wtAdd" class="ctl" style="cursor:pointer">➕ สร้าง</button></div>';
+    document.body.appendChild(wtPop);
+    const b = wtBtn.getBoundingClientRect();
+    wtPop.style.top = (b.bottom + 8) + "px";
+    wtPop.style.right = (innerWidth - b.right) + "px";
+    setTimeout(() => document.addEventListener("click", closeWt, { once: true }));
+    wtPop.querySelector("#wtAdd").onclick = async () => {
+      const name = wtPop.querySelector("#wtName").value.trim();
+      if (!name) return;
+      const r = await fetch("/api/worktrees/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ws: curWs, name }) });
+      const j = await r.json();
+      if (!r.ok) { alert(j.error || "สร้างไม่ได้"); return; }
+      createdName = name;
+      closeWt(); refreshWs(); refreshWt();
+    };
+    wtPop.querySelectorAll(".wt-del").forEach((btn) => {
+      btn.onclick = async (ev) => {
+        ev.stopPropagation();
+        if (!confirm("ลบ worktree นี้? (ไฟล์ในโฟลเดอร์นั้นจะถูกลบด้วย)")) return;
+        const r = await fetch("/api/worktrees/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ws: curWs, p: btn.dataset.p }) });
+        const j = await r.json();
+        if (!r.ok) { alert(j.error || "ลบไม่ได้"); return; }
+        closeWt(); refreshWs(); refreshWt();
+      };
+    });
+  } catch { wtBtn.textContent = "🌿 ?"; }
+};
+async function refreshWt() {
+  try {
+    const { worktrees } = await (await fetch("/api/worktrees?" + treeQ())).json();
+    wtBtn.textContent = "🌿 " + (worktrees.length - 1);
+    wtBtn.title = "worktrees: " + worktrees.length + " (คลิกจัดการ)";
+  } catch { wtBtn.textContent = "🌿"; }
+}
+refreshWt();
+
+/* ================= v16: user badge (logout + admin: จัดการสมาชิก) ================= */
+const userBadge = $("userBadge");
+let uPop = null;
+function closeU() { if (uPop) { uPop.remove(); uPop = null; document.removeEventListener("click", closeU); } }
+userBadge.onclick = async () => {
+  if (uPop) return closeU();
+  const role = userBadge.dataset.role;
+  let usersHtml = "";
+  if (role === "admin") {
+    try {
+      const { users } = await (await fetch("/api/users")).json();
+      usersHtml = '<div class="h">🧑‍💼 สมาชิก (' + users.length + ')</div>' +
+        users.map((u) => '<div class="r" style="display:flex;gap:8px;align-items:center">👤 ' + esc(u.name) +
+          ' <span class="muted">' + esc(u.role) + '</span><span style="flex:1"></span>' +
+          (u.role !== "admin" ? '<button class="u-del ctl" data-id="' + esc(u.id) + '" style="cursor:pointer">ลบ</button>' : "") + '</div>').join("") +
+        '<div class="r" style="display:flex;gap:6px"><input id="uName" class="ctl" style="flex:1" placeholder="ชื่อใหม่"><input id="uPass" class="ctl" style="flex:1" type="password" placeholder="รหัส (6+)">' +
+        '<button id="uAdd" class="ctl" style="cursor:pointer">➕ เพิ่ม</button></div>';
+    } catch {}
+  }
+  uPop = document.createElement("div");
+  uPop.className = "pb-pop";
+  uPop.innerHTML = '<div class="h">👤 ' + esc(userBadge.textContent.replace("👤 ", "")) + '</div>' + usersHtml +
+    '<div class="r"><button id="uOut" class="ctl" style="width:100%;cursor:pointer">ออกจากระบบ</button></div>';
+  document.body.appendChild(uPop);
+  const b = userBadge.getBoundingClientRect();
+  uPop.style.top = (b.bottom + 8) + "px";
+  uPop.style.right = (innerWidth - b.right) + "px";
+  setTimeout(() => document.addEventListener("click", closeU, { once: true }));
+  uPop.querySelector("#uOut").onclick = async () => { await fetch("/api/logout", { method: "POST" }); location.reload(); };
+  const uAdd = uPop.querySelector("#uAdd");
+  if (uAdd) uAdd.onclick = async () => {
+    const r = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: uPop.querySelector("#uName").value.trim(), password: uPop.querySelector("#uPass").value, role: "member" }) });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || "เพิ่มไม่ได้"); return; }
+    closeU(); userBadge.onclick();
+  };
+  uPop.querySelectorAll(".u-del").forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm("ลบสมาชิกคนนี้?")) return;
+      await fetch("/api/users/remove", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: btn.dataset.id }) });
+      closeU(); userBadge.onclick();
+    };
+  });
+};
+
+
 /* ================= load models ================= */
 (async () => {
   try {
@@ -641,6 +899,8 @@ async function run(ov = {}) {
     // Tier 1 plan mode: รอบวางแผน (agent ห้ามลงมือ) หรือแผนที่อนุมัติแล้ว (ลงมือตามแผน)
     planMode: planOn && !ov.approvedPlan ? true : undefined,
     approvedPlan: ov.approvedPlan || undefined,
+    // v16: พื้นที่ทำงานที่เลือก (agent จะใช้ root นั้นในการอ่าน/แก้ไฟล์ + run คำสั่ง)
+    ws: ($("wsSel") && $("wsSel").value) || undefined,
   };
 
   let liveE = null; // bubble คำตอบที่กำลังไหล (streaming)
@@ -665,6 +925,9 @@ async function run(ov = {}) {
         if (!ev.startsWith("{")) continue;
         const { type, data } = JSON.parse(ev);
         if (type === "queued") { actE.counts.queued = 1; updateEntry(actE); } // โดนพาเข้าคิว — งานก่อนหน้ายังรันอยู่
+        if (type === "run") { // v16: ผลการรันคำสั่งจริง (code mode) → แผง 🧪 ใน activity
+          actE.runs = actE.runs || []; actE.runs.push(data); updateEntry(actE);
+        }
         if (type === "log" && data) { tallyLine(actE, data); updateEntry(actE); }
         if (type === "plan") { // Tier 1: การ์ดแผน — สร้างใหม่ครั้งแรก แล้ว update สดตาม plan_done
           const had = s.entries.find((e) => e.type === "plan" && e.plan && e.plan.id === data.id);

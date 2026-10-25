@@ -18,6 +18,7 @@ process.env.OPENROUTER_API_KEY = "sk-mock-test";
 process.env.AGENT_EVENTS_FILE = require("node:path").join(require("node:os").tmpdir(), "agent-ev-test.jsonl");
 process.env.AGENT_PLAYBOOK_FILE = require("node:path").join(require("node:os").tmpdir(), "agent-pb-test.jsonl");
 process.env.AGENT_NO_EVALS = "1"; // Circuit 3 ปิดใน test เดิม — กัน eval-reflector ยิง LLM นอกสคริปต์
+process.env.AGENT_NO_AUTH = "1"; // v16 ปิดใน test เดิม — ไม่ทำ login flow ใน suite เดิม (test-auth จัดการเอง)
 process.env.AGENT_NO_CHECKPOINTS = "1"; // Tier 1 ปิดใน test เดิม — ไม่เขียนลง repo จริง
 
 // à¸ˆà¸±à¸š console.log "à¸•à¸±à¸§à¸ˆà¸£à¸´à¸‡" à¹„à¸§à¹‰à¸à¹ˆà¸­à¸™ à¹€à¸žà¸·à¹ˆà¸­à¸¢à¸·à¸™à¸¢à¸±à¸™à¸§à¹ˆà¸² server à¹„à¸¡à¹ˆà¸¡à¸² patch à¸¡à¸±à¸™

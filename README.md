@@ -14,10 +14,14 @@
 
 SPARK — ภารกิจของ agent ถูกฝังใน system prompt ทุก run: *"every run should make the NEXT run faster, cheaper, or smarter"*
 
-## ✨ ฟีเจอร์หลัก (v15)
+## ✨ ฟีเจอร์หลัก (v16)
 
 - **2 โหมด**: 🔎 Research (web_search + web_fetch + citation + freshness rule) / 💻 Code (`run_command` + `file_edit` exact-match + `file_grep` + **VERIFICATION GATE** — ห้ามบอกว่า "เสร็จ" โดยไม่รันจริง)
-- **🔒 Checkpoints + ย้อนกลับได้ (Tier 1)**: ก่อนทุก `file_edit`/`file_write`/`run_command` จะ snapshot ไฟล์ที่จะโดนแก้ (งานระดับโปรเจกต์ ถึง 120 ไฟล์ย่อ ≤300KB/ไฟล์) → UI ปุ่ม 🔒 ดู **diff แยกสีเป็นบล็อก** + กด **ย้อนกลับ** คืนไฟล์ได้ทันที (หน้าต่าง 30 checkpoint ล่าสุด, `AGENT_NO_CHECKPOINTS=1` ปิด)
+- **🧑‍💼 ระบบสมาชิก (v16)**: บัญชี admin/member + scrypt password hash (node:crypto) + session cookie HttpOnly 7 วัน — เปิดครั้งแรกจะให้สร้างบัญชีเจ้าของก่อน; login พลาด 5 ครั้ง → ล็อก 30 วิ; admin เพิ่ม/ลบสมาชิกผ่านปุ่ม 👤 (`AGENT_NO_AUTH=1` ปิด — โหมด local trust)
+- **📦 พื้นที่ทำงาน / Workspaces (v16)**: เลือกโฟลเดอร์โปรเจคผ่านปุ่ม 📁 — ทุก tool (file_read/file_write/file_edit/file_grep/run_command) และ checkpoint ทำงานในพื้นที่ที่เลือก ไม่แตะ repo ตัว agent (`agent_workspaces.json`, สูงสุด 20)
+- **🌿 Git worktrees (v16)**: ปุ่ม 🌿 สร้าง/ลบ worktree ต้นแบบ repo เพื่อทดลองแก้แยกกิ่ง — สร้างแล้ว auto-ลงทะเบียนเป็น workspace ให้เลย (ต้องเป็น git repo)
+- **🗂 ตัวสำรวจไฟล์ (v16)**: ปุ่ม 🗂 เปิด drawer โครงสร้างโปรเจคของพื้นที่ทำงาน (ต้นไม้ lazy-load, คลิกไฟล์ → preview ≤120KB) + 🧪 แผงผล run_command (exit code, ms, output) ใน activity card
+- **🔒 Checkpoints + ย้อนกลับได้ (Tier 1)**: ก่อนทุก `file_edit`/`file_write`/`run_command` จะ snapshot ไฟล์ที่จะโดนแก้ (งานระดับโปรเจกต์ ถึง 120 ไฟล์ย่อ ≤300KB/ไฟล์) → UI ปุ่ม 🔒 ดู **diff แยกสีเป็นบล็อก** + กด **ย้อนกลับ** คืนไฟล์ได้ทันที (หน้าต่าง 30 checkpoint ล่าสุด, `AGENT_NO_CHECKPOINTS=1` ปิด) — v16 เก็บ per-workspace แล้ว
 - **📋 Plan mode (Tier 1)**: สลับปุ่ม 📋 ใน UI → agent ทำแผน (research/อ่านอย่างเดียวห้ามแก้ไฟล์) → เสนอแผนผ่าน SSE เป็นการ์ด ✅/□ ในแชต → ผู้ใช้กด "อนุมัติแผน" → รูป agent ทำทีละขั้นกด `plan_done` เช็คขั้นที่เสร็จจริง
 - **📝 AGENTS.md (Tier 1)**: กฎของผู้ใช้ในไฟล์ `AGENTS.md` (อ่านทุก run, บังคับก่อน) — แก้ผ่านปุ่ม 📝 ใน UI ได้เลย (UTF-8, จำกัด 30k chars, `AGENT_AGENTS_FILE` เปลี่ยนตำแหน่งได้)
 - **⛁ ตัวชี้วัด token/บริบท (Tier 1)**: badge ใน UI แสดง token ที่ใช้รวม เทียบ % ของ context window โมเดลที่เลือก ทันทีที่ run จบ
@@ -48,7 +52,7 @@ node research-agent.js --playbook   # ดูกฎที่ agent เรีย�
 node research-agent.js --evals      # ดู checklist ที่ agent เก็บจากงานที่สำเร็จ
 ```
 
-## 🧪 Tests (offline, ไม่กิน API quota — ผ่าน 89 asserts ครบ 8 ไฟล์)
+## 🧪 Tests (offline, ไม่กิน API quota — ผ่าน 104 asserts ครบ 10 ไฟล์)
 
 ```bash
 node test-mock.js          # multi-agent + error self-recovery + sandbox escape + XSS (13)
@@ -59,6 +63,8 @@ node test-server-mock.js   # SSE streaming + queue (200/200/429) + Stop + tool o
 node test-smoke.js         # จริง: boot + route + validation (5)
 node test-evals.js         # วงจร 3: eval สร้างจากงานสำเร็จ + dedupe bump + inject hints + off-switch (8)
 node test-tier1.js         # Tier 1: AGENTS.md inject + plan mode + checkpoint/diff/restore (15)
+node test-auth.js          # v16: setup/login/rate-limit/session + worktree create/remove + tree escape guard (25)  ※ปิด dev server ก่อน
+node test-workspace.js     # v16: per-run root — file_edit/checkpoint/run cwd ลง workspace ที่เลือก (7)
 ```
 
 ## 🗂 โครงสร้าง
@@ -69,7 +75,7 @@ server.js           ← web backend (SSE + task queue + checkpoints/plan/AGENTS 
 ui.html             ← UI ทั้งหมด (single file)
 js-eval-runner.js   ← sandbox runner ของ js_eval (node:vm)
 agent-app.vbs       ← desktop launcher (ตรวจ server → auto บูต → เปิด Edge app window)
-test-*.js           ← 8 ชุดทดสอบ offline
+test-*.js           ← 10 ชุดทดสอบ offline
 docs/project-history.md  ← index เอกสาร + version history
 AGENT-ROADMAP.md    ← roadmap ของระบบ (วงจร 1-3 + Code Mode)
 ```

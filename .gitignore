@@ -19,3 +19,6 @@ reports/
 # ---- node ----
 node_modules/
 npm-debug.log*
+
+agent_users.json
+agent_workspaces.json

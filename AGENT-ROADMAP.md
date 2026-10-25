@@ -101,6 +101,14 @@ Implementation (ตามแผนที่ user อนุมัติ "ทำ�
 
 **เหลือใน idea bank (Tier 2):** auto-compaction ใกล้ context limit · hooks (ตรวจแบบ deterministic หลัง edit) · permission matrix allow/ask/deny · git auto-commit boundary · `-p` headless one-shot JSON mode · MCP client (stdio JSON-RPC)
 
+## 9. ระบบสมาชิก + พื้นที่ทำงาน + worktrees (v16) — ✅ (2026-10-25)
+- [x] 🧑‍💼 ระบบสมาชิก: scrypt hash + session cookie HttpOnly 7 วัน + setup ครั้งแรก + login rate-limit (5→30s) + admin จัดการสมาชิกผ่านปุ่ม 👤 (`AGENT_NO_AUTH=1` ปิด)
+- [x] 📦 Workspaces: 📁 เลือกโฟลเดอร์โปรเจค → tool ทั้งหมด + checkpoint ทำงานตามพื้นที่ที่เลือก (registry `agent_workspaces.json`, ws-root seed)
+- [x] 🌿 Git worktrees: สร้าง/ลบ worktree (กิ่งแยกทดลอง) จากปุ่ม 🌿 + auto-ลงทะเบียนเป็น workspace
+- [x] 🗂 Tree/file explorer: ต้นไม้ไฟล์ lazy-load + preview ไฟล์ (≤120KB) + path escape guard
+- [x] 🧪 Run panel: ผล run_command (cmd/exit/ms/output) ไหลผ่าน SSE event `run` → <details> ใน activity card
+- [x] per-run root ใน agent: ctx.root + rootOf() + tools รับ ctx + checkpoint rec.root (เทส test-workspace ยืนยันแก้ไฟล์ลง workspace จริง)
+
 ---
 **ลำดับทำที่แนะนำ:** ~~วงจร 1 MVP → เทส mock → ให้ user ทดสอบจริง → วงจร 2 → Code Mode → วงจร 3~~ **ครบทั้ง 3 วงจรแล้ว (v14)** — วงจรต่อไป:
 **กติกากลาง:** ทุก feature ใหม่ต้องตอบได้ว่า "ช่วยโมเดลธรรมดาเก่งขึ้นได้อย่างไร และกิน token เพิ่มเท่าไหร่"

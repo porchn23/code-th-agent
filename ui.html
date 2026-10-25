@@ -155,6 +155,7 @@
   #projectName { color:#26332b; font-size:14px; font-weight:700; line-height:1.4; }
   #projectPath { display:block; margin-top:3px; color:#818b83; font:11px/1.45 Consolas,monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .project-head-actions { display:flex; gap:7px; flex:0 0 auto; }
+  .project-lock-badge { display:inline-flex; align-items:center; padding:0 5px; color:#728076; font-size:10px; white-space:nowrap; }
   .project-head-actions button,.project-pane button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 10px; color:#536057; cursor:pointer; font-size:11px; }
   #closeProjectBtn { width:32px; padding:6px!important; color:#7a847d!important; font-size:17px!important; }
   .project-head-actions button:hover,.project-pane button:hover { border-color:#a9c9b7; color:var(--accent); }
@@ -202,9 +203,10 @@
   .workspace-tab-add:hover { border-color:#b8d1c1; background:#f4f8f5; color:#176b52; }
   .project-picker-list { display:grid; gap:6px; max-height:min(390px,55vh); overflow:auto; margin:14px 0 4px; }
   .project-picker-item { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; padding:11px 12px; border:1px solid #e8ece8; border-radius:9px; background:#fff; color:#26332b; text-align:left; cursor:pointer; }
-  .project-picker-item:hover,.project-picker-item.active { border-color:#b8d1c1; background:#f3f8f4; }
+  .project-picker-item:hover { border-color:#b8d1c1; background:#f3f8f4; }
   .project-picker-item span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .project-picker-item small { color:#7b877e; font:10px Consolas,monospace; }
+  .project-picker-item b { flex:0 0 auto; color:#43715a; font-size:10px; font-weight:650; }
   .inspector-body { flex:1; min-height:0; overflow:auto; padding:10px; }
   #worktreePane { width:100%; }
   .run-dock-head { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; padding:7px 13px; border-bottom:1px solid #edf0ed; background:#fafbf9; }
@@ -217,8 +219,7 @@
   .worktree-name { display:block; color:#35443a; font:11px Consolas,monospace; overflow-wrap:anywhere; }
   .worktree-branch { display:block; margin-top:4px; color:#8b948d; font-size:10px; }
   .worktree-meta { display:flex; align-items:center; justify-content:space-between; gap:7px; margin-top:8px; }
-  .worktree-create { display:flex; gap:6px; margin-top:10px; }
-  .worktree-create input,.workspace-dialog input { min-width:0; flex:1; padding:9px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); font-size:11px; }
+  .workspace-dialog input { min-width:0; flex:1; padding:9px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); font-size:11px; }
   .worktree-note,.empty-note { padding:9px; color:#8a948c; font-size:10.5px; line-height:1.6; }
   .run-card summary { cursor:pointer; color:#47534a; font-size:11px; }
   .run-card pre { max-height:280px; overflow:auto; margin:9px 0 0; padding:10px; border-radius:7px; background:#f5f7f5; color:#303a33; font:10px/1.55 Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -303,7 +304,7 @@
         <button id="sidebarToggle" aria-label="เปิดรายการบทสนทนา">☰</button>
         <div>
           <div class="name">ผู้ช่วยค้นคว้า</div>
-          <div class="sub">ถาม ค้นคว้า และทำงานกับไฟล์ของคุณ</div>
+          <div id="chatWorkspaceLabel" class="sub">โฟลเดอร์โปรเจกต์: กำลังโหลด…</div>
         </div>
         <div class="view-tabs" role="tablist" aria-label="มุมมอง">
           <button id="chatTab" class="view-tab active" role="tab" aria-selected="true">แชต</button>
@@ -348,7 +349,7 @@
     <section id="projectView" hidden>
       <div class="project-head">
         <div class="project-title"><strong id="projectName">ยังไม่ได้เลือกโปรเจกต์</strong><span id="projectPath">เพิ่มโฟลเดอร์โปรเจกต์เพื่อเริ่มใช้งาน</span></div>
-        <div class="project-head-actions"><button id="projectPickerBtn">▦ เปลี่ยนโปรเจกต์</button><button id="addWorkspaceBtn">＋ เพิ่มโฟลเดอร์</button><button id="refreshProjectBtn">↻ รีเฟรช</button><button id="closeProjectBtn" aria-label="ปิดโปรเจกต์" title="ปิดแผงโปรเจกต์">×</button></div>
+        <div class="project-head-actions"><span class="project-lock-badge">🔒 โปรเจกต์ประจำแชต</span><button id="addWorkspaceBtn">＋ เพิ่มโปรเจกต์และเปิดแชตใหม่</button><button id="refreshProjectBtn">↻ รีเฟรช</button><button id="closeProjectBtn" aria-label="ปิดโปรเจกต์" title="ปิดแผงโปรเจกต์">×</button></div>
       </div>
       <div class="project-layout">
         <aside id="filePane" class="project-pane">
@@ -393,10 +394,10 @@
   </div>
   <div id="projectPickerDialog" class="workspace-dialog" hidden>
     <section class="workspace-dialog-card" role="dialog" aria-modal="true" aria-labelledby="projectPickerTitle">
-      <h3 id="projectPickerTitle">เลือกโปรเจกต์</h3>
-      <p>เลือกโฟลเดอร์ที่จะใช้กับรายการไฟล์ ตัวแก้ไข และการทำงานในแชต</p>
+      <h3 id="projectPickerTitle">เริ่มแชตใหม่</h3>
+      <p>เลือกโปรเจกต์สำหรับแชตใหม่นี้ แชตที่เริ่มแล้วจะใช้โปรเจกต์เดิมตลอด</p>
       <div id="projectPickerList" class="project-picker-list"></div>
-      <div class="workspace-dialog-actions"><button id="projectPickerClose">ปิด</button><button id="projectPickerAdd">＋ เพิ่มโฟลเดอร์</button></div>
+      <div class="workspace-dialog-actions"><button id="projectPickerClose">ยกเลิก</button><button id="projectPickerAdd">＋ เพิ่มโปรเจกต์</button></div>
     </section>
   </div>
   <div id="accountDialog" class="workspace-dialog" hidden>
@@ -495,6 +496,8 @@ let sessions = loadSessions();
 let activeId = sessions[0] ? sessions[0].id : null;
 let running = false;
 let aborter = null;
+let runSettled = Promise.resolve();
+let resolveRunSettled = null;
 
 function loadSessions() {
   try {
@@ -506,14 +509,16 @@ function loadSessions() {
 function saveSessions() { try { localStorage.setItem("ra_sessions", JSON.stringify(sessions.slice(0, 30))); } catch {} }
 function active() { return sessions.find((s) => s.id === activeId); }
 
-function newSession() {
-  const s = { id: "s" + Date.now(), title: "แชตใหม่", ts: Date.now(), entries: [] };
+function newSession(workspaceId = curWs) {
+  const s = { id: "s" + Date.now() + "-" + Math.random().toString(36).slice(2, 9), title: "แชตใหม่", ts: Date.now(), workspaceId: workspaceId || "", entries: [] };
   sessions.unshift(s);
   activeId = s.id;
+  if (workspaceId) curWs = workspaceId;
+  localStorage.setItem("agent-ws", curWs);
   saveSessions(); renderSidebar(); renderChat();
   $("task").focus();
+  return s;
 }
-$("newChat").onclick = newSession;
 
 function renderSidebar() {
   const box = $("sessList");
@@ -533,23 +538,34 @@ function renderSidebar() {
   for (const s of list) {
     const d = document.createElement("div");
     d.className = "sess" + (s.id === activeId ? " active" : "");
+    const sessionWorkspace = projectWorkspaces?.find((workspace) => workspace.id === s.workspaceId);
     d.innerHTML = '<div class="row"><div class="t">' + esc(s.title) + '</div><button class="x" title="ลบแชต">✕</button></div>' +
-                  '<div class="d">' + new Date(s.ts).toLocaleString() + "</div>";
+                  '<div class="d">' + new Date(s.ts).toLocaleString() + (sessionWorkspace ? ' · 📁 ' + esc(sessionWorkspace.name) : "") + "</div>";
     // rename: ดับเบิลคลิกชื่อ
     d.ondblclick = (ev) => {
       if (ev.target.classList.contains("x")) return;
       const t = prompt("เปลี่ยนชื่อแชต:", s.title);
       if (t && t.trim()) { s.title = t.trim().slice(0, 60); saveSessions(); renderSidebar(); }
     };
-    d.onclick = () => { activeId = s.id; renderSidebar(); renderChat(); };
+    d.onclick = () => activateSession(s.id);
     d.querySelector(".x").onclick = (ev) => {
       ev.stopPropagation();
       if (!confirm("ลบแชต \"" + s.title + "\" ?")) return;
       const isThis = s.id === activeId;
-      sessions = sessions.filter((x) => x.id !== s.id);
-      if (isThis) { activeId = sessions[0] ? sessions[0].id : null; }
-      saveSessions(); renderSidebar(); renderChat();
+      if (isThis && running) { void stopActiveRun().then(() => removeSession(s.id)); return; }
+      removeSession(s.id);
     };
+    function removeSession(id) {
+      const isThis = id === activeId;
+      sessions = sessions.filter((x) => x.id !== id);
+      if (isThis) {
+        activeId = sessions[0] ? sessions[0].id : null;
+        const next = active();
+        curWs = next?.workspaceId || "";
+      }
+      saveSessions(); renderSidebar(); renderChat();
+      if (isThis) { localStorage.setItem("agent-ws", curWs); void onWorkspaceChange(); }
+    }
     box.appendChild(d);
   }
 }
@@ -959,6 +975,7 @@ $("planSlot").appendChild(planBtn);
 const projectView = $("projectView");
 let curWs = localStorage.getItem("agent-ws") || "";
 let projectWorkspaces = [], editorPath = "", editorOriginal = "", openEditorTabs = [], activeWorkspaceTab = "", runsTabOpen = true;
+let workspaceViewGeneration = 0;
 const RUNS_TAB = "__runs__";
 const samePath = (a, b) => String(a || "").replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase() === String(b || "").replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase();
 const activeWorkspace = () => projectWorkspaces.find((w) => w.id === curWs) || null;
@@ -968,19 +985,33 @@ async function refreshWs(preferredId) {
   if (!response.ok) throw new Error("โหลดรายการโปรเจกต์ไม่สำเร็จ");
   const data = await response.json();
   projectWorkspaces = data.workspaces || [];
-  const wanted = preferredId || curWs;
-  curWs = projectWorkspaces.some((w) => w.id === wanted) ? wanted : (projectWorkspaces[0]?.id || "");
+  const boundWorkspace = active()?.workspaceId;
+  const wanted = boundWorkspace || curWs || preferredId;
+  curWs = boundWorkspace || (projectWorkspaces.some((w) => w.id === wanted) ? wanted : (projectWorkspaces[0]?.id || ""));
   localStorage.setItem("agent-ws", curWs);
+  let sessionsChanged = false;
+  for (const session of sessions) {
+    if (!session.workspaceId) {
+      session.workspaceId = curWs;
+      sessionsChanged = true;
+    }
+  }
+  if (sessionsChanged) saveSessions();
   updateProjectHeading();
+  renderSidebar();
   renderProjectPicker();
   return projectWorkspaces;
 }
 
 function updateProjectHeading() {
   const ws = activeWorkspace();
-  $("projectName").textContent = ws ? ws.name : "ยังไม่ได้เลือกโปรเจกต์";
-  $("projectPath").textContent = ws ? ws.dir : "เพิ่มโฟลเดอร์โปรเจกต์เพื่อเริ่มใช้งาน";
+  const boundId = active()?.workspaceId;
+  const unavailable = !!boundId && !ws;
+  $("projectName").textContent = ws ? ws.name : unavailable ? "โปรเจกต์ของแชตนี้ไม่พร้อมใช้งาน" : "ยังไม่ได้เลือกโปรเจกต์";
+  $("projectPath").textContent = ws ? ws.dir : unavailable ? "ไม่พบโฟลเดอร์ที่ผูกกับแชตนี้" : "เพิ่มโฟลเดอร์โปรเจกต์เพื่อเริ่มใช้งาน";
   $("projectPath").title = ws ? ws.dir : "";
+  $("chatWorkspaceLabel").textContent = ws ? "โฟลเดอร์โปรเจกต์: " + ws.dir : unavailable ? "โฟลเดอร์โปรเจกต์: ไม่พร้อมใช้งาน (แชตนี้ยังผูกกับ Dir เดิม)" : "โฟลเดอร์โปรเจกต์: ยังไม่ได้เลือก";
+  $("chatWorkspaceLabel").title = ws ? ws.dir : "";
 }
 
 function clearEditor() {
@@ -1001,10 +1032,32 @@ function clearEditor() {
 }
 
 async function onWorkspaceChange() {
+  const generation = ++workspaceViewGeneration;
+  const workspaceId = curWs;
   localStorage.setItem("agent-ws", curWs);
   updateProjectHeading();
   clearEditor();
-  await Promise.all([renderProjectFiles(), renderWorktrees()]);
+  await Promise.all([renderProjectFiles(workspaceId, generation), renderWorktrees(workspaceId, generation)]);
+}
+
+function hasUnsavedEditorChanges() {
+  stashCurrentEditorTab();
+  return openEditorTabs.some((tab) => tab.content !== tab.original);
+}
+
+async function activateSession(id) {
+  if (id === activeId) return;
+  if (hasUnsavedEditorChanges() && !confirm("มีไฟล์ที่ยังไม่ได้บันทึก การเปลี่ยนแชตจะทิ้งการแก้ไขนี้ ต้องการไปต่อหรือไม่?")) return;
+  if (running) await stopActiveRun();
+  const previousWorkspace = curWs;
+  activeId = id;
+  const session = active();
+  curWs = session?.workspaceId || "";
+  localStorage.setItem("agent-ws", curWs);
+  renderSidebar();
+  renderChat();
+  if (curWs !== previousWorkspace) await onWorkspaceChange().catch((error) => console.error("โหลดโปรเจกต์ของแชตไม่สำเร็จ", error));
+  else { updateProjectHeading(); renderRunResults(); }
 }
 
 function switchProjectPanel(name) {
@@ -1058,11 +1111,11 @@ $("refreshProjectBtn").onclick = async () => {
   renderRunResults();
 };
 
-async function renderProjectFiles() {
+async function renderProjectFiles(workspaceId = curWs, generation = workspaceViewGeneration) {
   const tree = $("projectTree");
   tree.innerHTML = "";
   $("fileCount").textContent = "กำลังโหลด…";
-  if (!curWs) {
+  if (!workspaceId) {
     tree.innerHTML = '<div class="empty-note">ยังไม่มีโฟลเดอร์โปรเจกต์</div>';
     $("fileCount").textContent = "0";
     return;
@@ -1070,19 +1123,22 @@ async function renderProjectFiles() {
   const root = document.createElement("div");
   tree.appendChild(root);
   try {
-    const count = await fillFileTree(root, "");
+    const count = await fillFileTree(root, "", workspaceId, generation);
+    if (generation !== workspaceViewGeneration) return;
     $("fileCount").textContent = String(count) + " รายการ";
   } catch (error) {
+    if (generation !== workspaceViewGeneration) return;
     tree.innerHTML = '<div class="empty-note">' + esc(error.message) + '</div>';
     $("fileCount").textContent = "เกิดข้อผิดพลาด";
   }
 }
 
-async function fillFileTree(container, rel) {
-  const params = new URLSearchParams({ ws: curWs });
+async function fillFileTree(container, rel, workspaceId = curWs, generation = workspaceViewGeneration) {
+  const params = new URLSearchParams({ ws: workspaceId });
   if (rel) params.set("path", rel);
   const response = await fetch("/api/tree?" + params.toString());
   const result = await response.json();
+  if (generation !== workspaceViewGeneration) return 0;
   if (!response.ok) throw new Error(result.error || "เปิดรายการไฟล์ไม่ได้");
   let count = 0;
   for (const item of result.items || []) {
@@ -1107,7 +1163,7 @@ async function fillFileTree(container, rel) {
           childContainer = document.createElement("div");
           childContainer.className = "file-children";
           container.insertBefore(childContainer, row.nextSibling);
-          try { count += await fillFileTree(childContainer, itemPath); loaded = true; }
+          try { count += await fillFileTree(childContainer, itemPath, workspaceId, generation); loaded = true; }
           catch (error) { childContainer.innerHTML = '<div class="empty-note">' + esc(error.message) + '</div>'; loaded = true; }
         }
         childContainer.hidden = false;
@@ -1314,75 +1370,29 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-async function renderWorktrees() {
+async function renderWorktrees(workspaceId = curWs, generation = workspaceViewGeneration) {
   const body = $("worktreePane");
   if ($("worktreePane").hidden || !projectView || projectView.hidden) return;
-  if (!curWs) { body.innerHTML = '<div class="empty-note">เลือกหรือเพิ่มโปรเจกต์ก่อนจัดการ worktrees</div>'; return; }
+  if (!workspaceId) { body.innerHTML = '<div class="empty-note">แชตนี้ยังไม่มีโปรเจกต์</div>'; return; }
   body.innerHTML = '<div class="empty-note">กำลังโหลด worktrees…</div>';
   try {
-    const params = new URLSearchParams({ ws: curWs });
+    const params = new URLSearchParams({ ws: workspaceId });
     const response = await fetch("/api/worktrees?" + params.toString());
     const result = await response.json();
+    if (generation !== workspaceViewGeneration) return;
     if (!response.ok) throw new Error(result.error || "โฟลเดอร์นี้ยังไม่ใช่ Git project");
-    const primary = projectWorkspaces.find((w) => w.id === "ws-root");
+    const current = activeWorkspace();
     const cards = (result.worktrees || []).map((w) => {
-      const entry = projectWorkspaces.find((candidate) => samePath(candidate.dir, w.path));
-      const selected = entry && entry.id === curWs;
-      const isPrimary = primary && samePath(primary.dir, w.path);
-      return '<div class="worktree-card' + (selected ? " active" : "") + '">' +
-        '<button class="wt-select" data-ws="' + esc(entry?.id || "") + '" data-path="' + esc(w.path) + '">' +
-          '<span class="worktree-name">' + esc(w.path) + '</span>' +
-          '<span class="worktree-branch">⑂ ' + esc(w.branch || "detached") + (selected ? " · ใช้อยู่" : "") + '</span>' +
-        '</button><div class="worktree-meta"><span class="pane-caption">' + (isPrimary ? "โปรเจกต์หลัก" : entry ? "พร้อมใช้" : "ยังไม่อยู่ในรายการ") + '</span>' +
-        (!isPrimary && w.branch ? '<button class="wt-remove" data-path="' + esc(w.path) + '">ลบ</button>' : "") + '</div></div>';
+      const isCurrent = current && samePath(current.dir, w.path);
+      return '<div class="worktree-card' + (isCurrent ? " active" : "") + '">' +
+        '<span class="worktree-name">' + esc(w.path) + '</span>' +
+        '<span class="worktree-branch">⑂ ' + esc(w.branch || "detached") + '</span>' +
+        '<div class="worktree-meta"><span class="pane-caption">' + (isCurrent ? "Dir ของแชตนี้" : "Worktree ในโปรเจกต์นี้") + '</span></div></div>';
     }).join("");
-    body.innerHTML = '<div class="worktree-note">เลือก worktree เพื่อให้แชต, ไฟล์ และคำสั่งรันใช้โฟลเดอร์เดียวกัน</div>' +
-      (cards || '<div class="empty-note">ไม่พบ worktree</div>') +
-      '<div class="worktree-create"><input id="worktreeName" placeholder="ชื่อ branch ใหม่"><button id="worktreeCreate">＋ สร้าง</button></div>' +
-      '<div id="worktreeMessage" class="worktree-note">สร้าง branch และโฟลเดอร์แยกจากโปรเจกต์หลัก</div>';
-    body.querySelectorAll(".wt-select").forEach((button) => {
-      button.onclick = async () => {
-        let id = button.dataset.ws;
-        if (!id) {
-          const add = await fetch("/api/workspaces", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ dir:button.dataset.path }) });
-          const out = await add.json();
-          if (!add.ok) { $("worktreeMessage").textContent = out.error || "เพิ่ม worktree ไม่สำเร็จ"; return; }
-          const list = await refreshWs(out.workspace.id);
-          id = list.find((item) => samePath(item.dir, button.dataset.path))?.id;
-        }
-        if (id) { curWs = id; await onWorkspaceChange(); }
-      };
-    });
-    body.querySelectorAll(".wt-remove").forEach((button) => {
-      button.onclick = async () => {
-        if (!confirm("ลบโฟลเดอร์ worktree นี้ออกจากเครื่องหรือไม่?")) return;
-        const response = await fetch("/api/worktrees/remove", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ws:curWs, p:button.dataset.path }) });
-        const out = await response.json();
-        if (!response.ok) { $("worktreeMessage").textContent = out.error || "ลบ worktree ไม่สำเร็จ"; return; }
-        await refreshWs();
-        await Promise.all([renderProjectFiles(), renderWorktrees()]);
-      };
-    });
-    body.querySelector("#worktreeCreate").onclick = async () => {
-      const name = body.querySelector("#worktreeName").value.trim();
-      if (!name) { $("worktreeMessage").textContent = "ใส่ชื่อ branch ก่อนสร้าง"; return; }
-      const button = body.querySelector("#worktreeCreate");
-      button.disabled = true;
-      $("worktreeMessage").textContent = "กำลังสร้าง worktree…";
-      try {
-        const response = await fetch("/api/worktrees/create", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ws:curWs, name }) });
-        const out = await response.json();
-        if (!response.ok) throw new Error(out.error || "สร้าง worktree ไม่สำเร็จ");
-        const list = await refreshWs();
-        const created = list.find((item) => samePath(item.dir, out.path));
-        if (created) { curWs = created.id; await onWorkspaceChange(); }
-        await renderWorktrees();
-      } catch (error) {
-        $("worktreeMessage").textContent = error.message;
-        button.disabled = false;
-      }
-    };
+    body.innerHTML = '<div class="worktree-note">แสดง worktrees ของโปรเจกต์ประจำแชตนี้เท่านั้น · ดูข้อมูลอย่างเดียว ไม่สลับ Dir</div>' +
+      (cards || '<div class="empty-note">ไม่พบ worktrees ในโปรเจกต์นี้</div>');
   } catch (error) {
+    if (generation !== workspaceViewGeneration) return;
     body.innerHTML = '<div class="empty-note">' + esc(error.message) + '</div>';
   }
 }
@@ -1415,18 +1425,37 @@ function renderProjectPicker() {
   for (const workspace of projectWorkspaces) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "project-picker-item" + (workspace.id === curWs ? " active" : "");
-    button.innerHTML = '<span><strong>' + esc(workspace.name) + '</strong><br><small>' + esc(workspace.dir) + '</small></span>' + (workspace.id === curWs ? '<b aria-label="กำลังใช้งาน">✓</b>' : '<span aria-hidden="true">›</span>');
-    button.onclick = async () => {
-      curWs = workspace.id;
-      projectPickerDialog.hidden = true;
-      await onWorkspaceChange();
-    };
+    button.className = "project-picker-item";
+    button.innerHTML = '<span><strong>' + esc(workspace.name) + '</strong><br><small>' + esc(workspace.dir) + '</small></span><b aria-hidden="true">แชตใหม่ ›</b>';
+    button.onclick = () => { void startChatInWorkspace(workspace.id); };
     list.appendChild(button);
   }
   if (!projectWorkspaces.length) list.innerHTML = '<div class="empty-note">ยังไม่มีโฟลเดอร์โปรเจกต์</div>';
 }
-$("projectPickerBtn").onclick = () => { renderProjectPicker(); projectPickerDialog.hidden = false; };
+async function stopActiveRun() {
+  if (!running) return;
+  const settled = runSettled;
+  aborter?.abort();
+  await settled;
+}
+async function startChatInWorkspace(workspaceId) {
+  if (!projectWorkspaces.some((workspace) => workspace.id === workspaceId)) {
+    alert("ไม่พบโปรเจกต์นี้ กรุณารีเฟรชรายการแล้วลองอีกครั้ง");
+    return;
+  }
+  if (hasUnsavedEditorChanges() && !confirm("มีไฟล์ที่ยังไม่ได้บันทึก การเริ่มแชตใหม่จะทิ้งการแก้ไขนี้ ต้องการไปต่อหรือไม่?")) return;
+  await stopActiveRun();
+  projectPickerDialog.hidden = true;
+  newSession(workspaceId);
+  await onWorkspaceChange();
+}
+async function openNewChatPicker() {
+  await stopActiveRun();
+  if (!projectWorkspaces.length) await refreshWs();
+  renderProjectPicker();
+  projectPickerDialog.hidden = false;
+}
+$("newChat").onclick = openNewChatPicker;
 $("projectPickerClose").onclick = () => { projectPickerDialog.hidden = true; };
 projectPickerDialog.onclick = (event) => { if (event.target === projectPickerDialog) projectPickerDialog.hidden = true; };
 $("projectPickerAdd").onclick = () => { projectPickerDialog.hidden = true; $("addWorkspaceBtn").click(); };
@@ -1434,8 +1463,10 @@ function closeWorkspaceDialog() { workspaceDialog.hidden = true; }
 $("addWorkspaceBtn").onclick = () => {
   $("workspaceDir").value = "";
   $("workspaceError").textContent = "";
-  workspaceDialog.hidden = false;
-  $("workspaceDir").focus();
+  void stopActiveRun().then(() => {
+    workspaceDialog.hidden = false;
+    $("workspaceDir").focus();
+  });
 };
 $("workspaceCancel").onclick = closeWorkspaceDialog;
 workspaceDialog.onclick = (event) => { if (event.target === workspaceDialog) closeWorkspaceDialog(); };
@@ -1483,9 +1514,9 @@ $("workspaceAdd").onclick = async () => {
     const response = await fetch("/api/workspaces", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ dir }) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || "เพิ่มโฟลเดอร์ไม่สำเร็จ");
-    await refreshWs(result.workspace.id);
+    await refreshWs();
     closeWorkspaceDialog();
-    await onWorkspaceChange();
+    await startChatInWorkspace(result.workspace.id);
   } catch (error) { $("workspaceError").textContent = error.message; }
   finally { button.disabled = false; }
 };
@@ -1573,7 +1604,9 @@ async function run(ov = {}) {
   const s = active();
   if (s.entries.length === 0) { s.title = task.slice(0, 44); s.ts = Date.now(); renderSidebar(); }
 
-  running = true; go.disabled = true; $("stop").hidden = false; $("task").value = "";
+  running = true;
+  runSettled = new Promise((resolve) => { resolveRunSettled = resolve; });
+  go.disabled = true; $("stop").hidden = false; $("task").value = "";
   const userE = { type: "user", text: task };
   const actE  = { type: "activity", counts: {}, done: false };
   appendEntry(userE); appendEntry(actE); saveSessions();
@@ -1596,7 +1629,7 @@ async function run(ov = {}) {
     planMode: planOn && !ov.approvedPlan ? true : undefined,
     approvedPlan: ov.approvedPlan || undefined,
     // v16: พื้นที่ทำงานที่เลือก (agent จะใช้ root นั้นในการอ่าน/แก้ไฟล์ + run คำสั่ง)
-    ws: curWs || undefined,
+    ws: s.workspaceId || curWs || undefined,
   };
 
   let liveE = null; // bubble คำตอบที่กำลังไหล (streaming)
@@ -1670,6 +1703,9 @@ async function run(ov = {}) {
       ctxBadge.title = "token ของรันล่าสุด" + (mctx ? " · context ของ model " + fmt(mctx) + " tok" : " (ไม่รู้ความจุ model)");
     } catch {}
     saveSessions(); renderChat(); refreshPb(); refreshSk(); refreshEv(); refreshCk(); $("task").focus();
+    const settle = resolveRunSettled;
+    resolveRunSettled = null;
+    settle?.();
   }
 }
 go.onclick = run;

@@ -150,24 +150,20 @@
   details.runbox { border:1px solid var(--line); border-radius:8px; padding:5px 9px; margin-top:5px; font-size:12px; background:#fafbfc; }
   #projectView { grid-column:2; grid-row:2 / 4; min-width:0; min-height:0; display:flex; flex-direction:column; background:#f5f7f4; border-left:1px solid var(--line); }
   #projectView[hidden] { display:none; }
-  .project-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px 18px; border-bottom:1px solid var(--line); background:#fff; }
-  .project-title { display:flex; flex-direction:column; gap:3px; min-width:0; }
-  #projectName { color:#26332b; font-size:14px; font-weight:700; line-height:1.4; }
-  #projectPath { display:block; margin-top:3px; color:#818b83; font:11px/1.45 Consolas,monospace; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .project-head-actions { display:flex; gap:7px; flex:0 0 auto; }
-  .project-lock-badge { display:inline-flex; align-items:center; padding:0 5px; color:#728076; font-size:10px; white-space:nowrap; }
-  .project-head-actions button,.project-pane button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 10px; color:#536057; cursor:pointer; font-size:11px; }
-  #closeProjectBtn { width:32px; padding:6px!important; color:#7a847d!important; font-size:17px!important; }
-  .project-head-actions button:hover,.project-pane button:hover { border-color:#a9c9b7; color:var(--accent); }
-  .project-layout { display:grid; grid-template-columns:minmax(170px,38%) minmax(0,1fr); gap:0; flex:1; min-height:0; overflow:hidden; border-top:1px solid var(--line); }
+  .project-pane button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 10px; color:#536057; cursor:pointer; font-size:11px; }
+  .project-pane button:hover { border-color:#a9c9b7; color:var(--accent); }
+  .project-layout { display:grid; grid-template-columns:minmax(170px,38%) minmax(0,1fr); gap:0; flex:1; min-height:0; overflow:hidden; }
+  .project-footer { display:flex; align-items:center; gap:6px; min-width:0; min-height:27px; padding:4px 12px; border-top:1px solid #e8ece8; background:#fafbf9; color:#929b94; font-size:9px; }
+  .project-footer-label { flex:0 0 auto; color:#7d887f; }
+  #projectName { flex:0 0 auto; max-width:150px; overflow:hidden; color:#707b72; font-size:9px; font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
+  #projectPath { min-width:0; overflow:hidden; color:#9aa29b; font:9px/1.3 Consolas,monospace; text-overflow:ellipsis; white-space:nowrap; }
   .project-pane { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; border:1px solid #e3e8e3; border-radius:11px; background:#fff; }
   #filePane { border:0; border-right:1px solid #e3e8e3; border-radius:0; }
-  .project-workarea { display:grid; grid-template-rows:39px minmax(0,1fr); min-width:0; min-height:0; background:#f5f7f4; }
+  .project-workarea { display:grid; grid-template-rows:40px minmax(0,1fr); min-width:0; min-height:0; background:#f5f7f4; }
   #editorPane { border:0; border-bottom:1px solid #dfe5df; border-radius:0; }
   #runDock { border:0; border-radius:0; min-height:0; }
-  .sideview-tabs { display:flex; gap:3px; padding:8px 9px; border-bottom:1px solid #edf0ed; background:#fafbf9; }
-  .sideview-tab { display:flex; align-items:center; justify-content:space-between; gap:7px; flex:1; border:0!important; border-radius:7px!important; background:transparent!important; color:#78827a!important; padding:8px!important; cursor:pointer; font-size:11px!important; }
-  .sideview-tab.active { background:#edf4ef!important; color:#205e47!important; font-weight:650; }
+  .project-file-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; height:40px; min-height:40px; box-sizing:border-box; padding:0 10px 0 13px; border-bottom:1px solid #e5e9e5; background:#fff; }
+  .project-file-label { display:flex; align-items:center; gap:7px; color:#34443a; font-size:11.5px; font-weight:650; }
   .sidebar-body { display:flex; flex:1; min-height:0; overflow:hidden; }
   .pane-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:11px 12px; border-bottom:1px solid #edf0ed; }
   .pane-head strong { font-size:11.5px; }
@@ -185,12 +181,17 @@
   #editorSave { background:#176b52!important; border-color:#176b52!important; color:white!important; }
   #editorSave:disabled { opacity:.45; cursor:default; }
   #editorEmpty { flex:1; display:grid; place-content:center; gap:7px; color:#929b94; text-align:center; font-size:12px; }
-  #codeEditor[hidden],#editorEmpty[hidden],#editorPane[hidden],#runDock[hidden],#worktreePane[hidden] { display:none!important; }
+  #codeEditor[hidden],#editorEmpty[hidden],#editorPane[hidden],#runDock[hidden] { display:none!important; }
   #editorEmpty b { color:#59645d; font-size:13px; font-weight:600; }
   #codeEditor { flex:1; width:100%; min-height:0; resize:none; border:0; outline:0; padding:17px 18px; background:#fff; color:#26332b; font:12px/1.7 Consolas,"Cascadia Code",monospace; tab-size:2; white-space:pre; overflow:auto; }
   #codeEditor:focus { box-shadow:inset 0 0 0 1px #b7d4c2; }
   .editor-foot { display:flex; justify-content:space-between; gap:10px; padding:6px 11px; border-top:1px solid #edf0ed; color:#939b94; font:10px Consolas,monospace; }
-  .workspace-tabs { display:flex; align-items:stretch; gap:2px; min-width:0; overflow:auto; padding:0 9px; border-bottom:1px solid #e5e9e5; background:#fff; scrollbar-width:thin; }
+  .workspace-tabs { display:flex; align-items:stretch; height:40px; min-height:40px; box-sizing:border-box; min-width:0; overflow:hidden; border-bottom:1px solid #e5e9e5; background:#fff; }
+  .workspace-tab-list { display:flex; align-items:stretch; gap:2px; min-width:0; flex:1 1 auto; overflow-x:auto; overflow-y:hidden; padding:0 7px; scrollbar-width:thin; }
+  .workspace-tab-actions { display:flex; align-items:center; gap:3px; flex:0 0 auto; margin-left:auto; padding:0 5px; border-left:1px solid #edf0ed; background:#fff; }
+  .workspace-tab-actions button { display:grid; place-items:center; width:27px; height:27px; padding:0; border:1px solid transparent; border-radius:7px; background:transparent; color:#68746b; cursor:pointer; font-size:15px; }
+  .workspace-tab-actions button:hover { border-color:#dfe7e0; background:#f5f8f5; color:#205e47; }
+  #closeProjectBtn:hover { border-color:#ecd5d5; background:#fff8f8; color:#a34545; }
   .workspace-tab { position:relative; display:flex; align-items:center; gap:4px; min-width:128px; max-width:240px; height:38px; margin-top:0; padding:0 7px 0 10px; border:0; border-radius:0; background:transparent; color:#78827a; white-space:nowrap; transition:background .15s,color .15s; }
   .workspace-tab:hover { background:#f6f8f6; color:#35463a; }
   .workspace-tab.active { background:#f3f7f4; color:#203c2d; box-shadow:inset 0 -2px #167451; }
@@ -208,19 +209,13 @@
   .project-picker-item small { color:#7b877e; font:10px Consolas,monospace; }
   .project-picker-item b { flex:0 0 auto; color:#43715a; font-size:10px; font-weight:650; }
   .inspector-body { flex:1; min-height:0; overflow:auto; padding:10px; }
-  #worktreePane { width:100%; }
   .run-dock-head { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:40px; padding:7px 13px; border-bottom:1px solid #edf0ed; background:#fafbf9; }
   .run-dock-head strong { font-size:11.5px; }
   .run-dock-head span { color:#8c958e; font-size:10px; }
   #runPane { flex:1; overflow:auto; padding:8px 12px; }
-  .worktree-card,.run-card { margin-bottom:8px; padding:10px; border:1px solid #e7ebe7; border-radius:8px; background:#fff; }
-  .worktree-card.active { border-color:#a9c9b7; background:#f4f9f5; }
-  .worktree-card button { width:100%; padding:0; border:0!important; background:transparent!important; text-align:left; }
-  .worktree-name { display:block; color:#35443a; font:11px Consolas,monospace; overflow-wrap:anywhere; }
-  .worktree-branch { display:block; margin-top:4px; color:#8b948d; font-size:10px; }
-  .worktree-meta { display:flex; align-items:center; justify-content:space-between; gap:7px; margin-top:8px; }
+  .run-card { margin-bottom:8px; padding:10px; border:1px solid #e7ebe7; border-radius:8px; background:#fff; }
   .workspace-dialog input { min-width:0; flex:1; padding:9px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); font-size:11px; }
-  .worktree-note,.empty-note { padding:9px; color:#8a948c; font-size:10.5px; line-height:1.6; }
+  .empty-note { padding:9px; color:#8a948c; font-size:10.5px; line-height:1.6; }
   .run-card summary { cursor:pointer; color:#47534a; font-size:11px; }
   .run-card pre { max-height:280px; overflow:auto; margin:9px 0 0; padding:10px; border-radius:7px; background:#f5f7f5; color:#303a33; font:10px/1.55 Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
   .run-ok { color:#26754f; } .run-fail { color:#b52d35; }
@@ -260,10 +255,10 @@
   .account-note { margin:6px 0 0; color:#89938b; font-size:10.5px; line-height:1.55; }
   .account-dialog-foot { display:flex; justify-content:flex-end; align-items:center; padding:12px 20px; border-top:1px solid #edf0ed; }
   #accountError { min-height:16px; color:#b52d35; font-size:10.5px; }
-  @media(max-width:1100px) { .project-workarea { grid-template-rows:39px minmax(0,1fr); } }
+  @media(max-width:1100px) { .project-workarea { grid-template-rows:40px minmax(0,1fr); } }
   @media(max-width:760px) { .view-tabs { margin-left:4px; } .view-tab { padding:6px 7px; font-size:10px; }
-    .project-head { align-items:flex-start; flex-direction:column; } .project-layout { display:flex; flex-direction:column; overflow:auto; }
-    #filePane { min-height:200px; max-height:34vh; flex:0 0 auto; } .project-workarea { min-height:72vh; grid-template-rows:39px minmax(380px,1fr); }
+    .project-layout { display:flex; flex-direction:column; overflow:auto; }
+    #filePane { min-height:200px; max-height:34vh; flex:0 0 auto; } .project-workarea { min-height:72vh; grid-template-rows:40px minmax(380px,1fr); }
     .account-form-grid { grid-template-columns:1fr; }
   }
   @media(max-width:900px) { #side { width:226px; min-width:226px; } #header { padding:10px 16px; } #header .sub { display:none; } }
@@ -347,23 +342,23 @@
       </div>
     </div>
     <section id="projectView" hidden>
-      <div class="project-head">
-        <div class="project-title"><strong id="projectName">ยังไม่ได้เลือกโปรเจกต์</strong><span id="projectPath">เพิ่มโฟลเดอร์โปรเจกต์เพื่อเริ่มใช้งาน</span></div>
-        <div class="project-head-actions"><span class="project-lock-badge">🔒 โปรเจกต์ประจำแชต</span><button id="addWorkspaceBtn">＋ เพิ่มโปรเจกต์และเปิดแชตใหม่</button><button id="refreshProjectBtn">↻ รีเฟรช</button><button id="closeProjectBtn" aria-label="ปิดโปรเจกต์" title="ปิดแผงโปรเจกต์">×</button></div>
-      </div>
       <div class="project-layout">
         <aside id="filePane" class="project-pane">
-          <div class="sideview-tabs" role="tablist" aria-label="แถบโปรเจกต์">
-            <button class="sideview-tab active" data-sidebar="files">ไฟล์ <span id="fileCount" class="pane-caption">—</span></button>
-            <button class="sideview-tab" data-sidebar="worktrees">Worktrees</button>
+          <div class="project-file-toolbar">
+            <div class="project-file-label"><span>ไฟล์</span><span id="fileCount" class="pane-caption">—</span></div>
           </div>
           <div class="sidebar-body">
             <div id="projectTree"></div>
-            <div id="worktreePane" class="inspector-body" hidden></div>
           </div>
         </aside>
         <div class="project-workarea">
-          <div id="workspaceTabs" class="workspace-tabs" role="tablist" aria-label="ไฟล์และผลรัน"></div>
+          <div id="workspaceTabs" class="workspace-tabs" aria-label="ไฟล์และผลรัน">
+            <div id="workspaceTabList" class="workspace-tab-list" role="tablist" aria-label="ไฟล์และผลรัน"></div>
+            <div class="workspace-tab-actions">
+              <button id="refreshProjectBtn" aria-label="รีเฟรชรายการไฟล์" title="รีเฟรชรายการไฟล์">↻</button>
+              <button id="closeProjectBtn" aria-label="ปิดแผงโปรเจกต์" title="ปิดแผงโปรเจกต์">×</button>
+            </div>
+          </div>
           <section id="editorPane" class="project-pane">
             <div class="editor-head"><span id="editorFileName">ยังไม่ได้เลือกไฟล์</span><div class="editor-actions"><span id="editorStatus">พร้อม</span><button id="editorSave" disabled>บันทึก</button></div></div>
             <div id="editorEmpty"><b>เลือกไฟล์เพื่อเริ่มแก้ไข</b><span>เลือกไฟล์จากรายการด้านซ้าย</span></div>
@@ -376,6 +371,7 @@
           </section>
         </div>
       </div>
+      <footer class="project-footer"><span class="project-footer-label">โปรเจกต์</span><strong id="projectName">ยังไม่ได้เลือก</strong><span aria-hidden="true">·</span><span id="projectPath" title="">ยังไม่ได้เลือก Dir</span></footer>
     </section>
   </div>
   <div id="workspaceDialog" class="workspace-dialog" hidden>
@@ -977,7 +973,6 @@ let curWs = localStorage.getItem("agent-ws") || "";
 let projectWorkspaces = [], editorPath = "", editorOriginal = "", openEditorTabs = [], activeWorkspaceTab = "", runsTabOpen = true;
 let workspaceViewGeneration = 0;
 const RUNS_TAB = "__runs__";
-const samePath = (a, b) => String(a || "").replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase() === String(b || "").replace(/[\\/]+$/, "").replace(/\//g, "\\").toLowerCase();
 const activeWorkspace = () => projectWorkspaces.find((w) => w.id === curWs) || null;
 
 async function refreshWs(preferredId) {
@@ -1016,7 +1011,7 @@ function updateProjectHeading() {
 
 function clearEditor() {
   openEditorTabs = [];
-  activeWorkspaceTab = "";
+  activeWorkspaceTab = RUNS_TAB;
   runsTabOpen = true;
   editorPath = "";
   editorOriginal = "";
@@ -1037,7 +1032,7 @@ async function onWorkspaceChange() {
   localStorage.setItem("agent-ws", curWs);
   updateProjectHeading();
   clearEditor();
-  await Promise.all([renderProjectFiles(workspaceId, generation), renderWorktrees(workspaceId, generation)]);
+  await renderProjectFiles(workspaceId, generation);
 }
 
 function hasUnsavedEditorChanges() {
@@ -1060,23 +1055,7 @@ async function activateSession(id) {
   else { updateProjectHeading(); renderRunResults(); }
 }
 
-function switchProjectPanel(name) {
-  if (name === "runs") {
-    for (const button of document.querySelectorAll(".sideview-tab")) button.classList.toggle("active", button.dataset.sidebar === "files");
-    $("projectTree").hidden = false;
-    $("worktreePane").hidden = true;
-    openRunsTab(true);
-    return;
-  }
-  const showWorktrees = name === "worktrees";
-  for (const button of document.querySelectorAll(".sideview-tab")) button.classList.toggle("active", button.dataset.sidebar === (showWorktrees ? "worktrees" : "files"));
-  $("projectTree").hidden = showWorktrees;
-  $("worktreePane").hidden = !showWorktrees;
-  renderRunResults();
-  if (showWorktrees) renderWorktrees();
-}
-
-async function showProjectView(panel = "files") {
+async function showProjectView() {
   $("chatTab").classList.remove("active");
   $("chatTab").setAttribute("aria-selected", "false");
   $("projectTab").classList.add("active");
@@ -1087,7 +1066,6 @@ async function showProjectView(panel = "files") {
   projectView.hidden = false;
   if (!projectWorkspaces.length) await refreshWs();
   updateProjectHeading();
-  switchProjectPanel(panel);
   await renderProjectFiles();
 }
 
@@ -1107,7 +1085,7 @@ $("projectTab").onclick = () => projectView.hidden ? showProjectView() : showCha
 $("closeProjectBtn").onclick = showChatView;
 $("refreshProjectBtn").onclick = async () => {
   await refreshWs(curWs);
-  await Promise.all([renderProjectFiles(), renderWorktrees()]);
+  await renderProjectFiles();
   renderRunResults();
 };
 
@@ -1187,7 +1165,7 @@ function stashCurrentEditorTab() {
 }
 
 function renderWorkspaceTabs() {
-  const host = $("workspaceTabs");
+  const host = $("workspaceTabList");
   if (!host) return;
   host.replaceChildren();
   const addTab = (id, title, dirty = false) => {
@@ -1370,33 +1348,6 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-async function renderWorktrees(workspaceId = curWs, generation = workspaceViewGeneration) {
-  const body = $("worktreePane");
-  if ($("worktreePane").hidden || !projectView || projectView.hidden) return;
-  if (!workspaceId) { body.innerHTML = '<div class="empty-note">แชตนี้ยังไม่มีโปรเจกต์</div>'; return; }
-  body.innerHTML = '<div class="empty-note">กำลังโหลด worktrees…</div>';
-  try {
-    const params = new URLSearchParams({ ws: workspaceId });
-    const response = await fetch("/api/worktrees?" + params.toString());
-    const result = await response.json();
-    if (generation !== workspaceViewGeneration) return;
-    if (!response.ok) throw new Error(result.error || "โฟลเดอร์นี้ยังไม่ใช่ Git project");
-    const current = activeWorkspace();
-    const cards = (result.worktrees || []).map((w) => {
-      const isCurrent = current && samePath(current.dir, w.path);
-      return '<div class="worktree-card' + (isCurrent ? " active" : "") + '">' +
-        '<span class="worktree-name">' + esc(w.path) + '</span>' +
-        '<span class="worktree-branch">⑂ ' + esc(w.branch || "detached") + '</span>' +
-        '<div class="worktree-meta"><span class="pane-caption">' + (isCurrent ? "Dir ของแชตนี้" : "Worktree ในโปรเจกต์นี้") + '</span></div></div>';
-    }).join("");
-    body.innerHTML = '<div class="worktree-note">แสดง worktrees ของโปรเจกต์ประจำแชตนี้เท่านั้น · ดูข้อมูลอย่างเดียว ไม่สลับ Dir</div>' +
-      (cards || '<div class="empty-note">ไม่พบ worktrees ในโปรเจกต์นี้</div>');
-  } catch (error) {
-    if (generation !== workspaceViewGeneration) return;
-    body.innerHTML = '<div class="empty-note">' + esc(error.message) + '</div>';
-  }
-}
-
 function renderRunResults() {
   const pane = $("runPane");
   if (!pane || pane.hidden) return;
@@ -1413,8 +1364,6 @@ function renderRunResults() {
       ).join("")
     : '<div class="empty-note">ผลรันของแชตนี้จะแสดงที่นี่เมื่อใช้โหมดเขียนโค้ด</div>';
 }
-
-document.querySelectorAll(".sideview-tab").forEach((button) => button.onclick = () => switchProjectPanel(button.dataset.sidebar));
 
 const workspaceDialog = $("workspaceDialog");
 const projectPickerDialog = $("projectPickerDialog");
@@ -1458,16 +1407,16 @@ async function openNewChatPicker() {
 $("newChat").onclick = openNewChatPicker;
 $("projectPickerClose").onclick = () => { projectPickerDialog.hidden = true; };
 projectPickerDialog.onclick = (event) => { if (event.target === projectPickerDialog) projectPickerDialog.hidden = true; };
-$("projectPickerAdd").onclick = () => { projectPickerDialog.hidden = true; $("addWorkspaceBtn").click(); };
+$("projectPickerAdd").onclick = () => { projectPickerDialog.hidden = true; openWorkspaceDialog(); };
 function closeWorkspaceDialog() { workspaceDialog.hidden = true; }
-$("addWorkspaceBtn").onclick = () => {
+function openWorkspaceDialog() {
   $("workspaceDir").value = "";
   $("workspaceError").textContent = "";
   void stopActiveRun().then(() => {
     workspaceDialog.hidden = false;
     $("workspaceDir").focus();
   });
-};
+}
 $("workspaceCancel").onclick = closeWorkspaceDialog;
 workspaceDialog.onclick = (event) => { if (event.target === workspaceDialog) closeWorkspaceDialog(); };
 $("directoryBrowseToggle").onclick = async () => {
@@ -1522,8 +1471,10 @@ $("workspaceAdd").onclick = async () => {
 };
 $("workspaceDir").addEventListener("keydown", (event) => { if (event.key === "Enter") $("workspaceAdd").click(); });
 
-async function refreshWt() { return renderWorktrees(); }
-refreshWs().then(() => Promise.all([renderProjectFiles(), renderWorktrees()])).catch((error) => {
+activeWorkspaceTab = RUNS_TAB;
+renderWorkspaceTabs();
+showWorkspaceTabContent();
+refreshWs().then(() => renderProjectFiles()).catch((error) => {
   $("projectTree").innerHTML = '<div class="empty-note">' + esc(error.message) + '</div>';
 });
 

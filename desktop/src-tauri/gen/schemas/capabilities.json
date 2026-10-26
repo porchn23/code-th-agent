@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"ความสามารถพื้นฐานของหน้าต่างหลัก","local":true,"windows":["main"],"permissions":["core:default","core:event:default","core:window:default","core:webview:default","core:app:default","core:path:default","dialog:default","opener:default"]}}

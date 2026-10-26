@@ -20,6 +20,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { safePathInRoot, fetchWithPublicRedirects } = require("./security-guards.js");
 const os = require("node:os");
+const crypto = require("node:crypto");
 const readline = require("node:readline");
 const { execFile } = require("node:child_process");
 
@@ -141,7 +142,7 @@ const TOOL_SPECS = [
     function: {
       name: "file_read",
       description:
-        "Read a small text file (md/txt/json/csv/js/html, max ~20k chars) from the project directory. Use to re-read reports/notes you (or the user) saved earlier.",
+        "Read a small text file from the currently selected project directory (relative path, max ~20k chars). Use file_list to discover paths first, then file_read. Never guess the project root or use absolute paths.",
       parameters: {
         type: "object",
         properties: {
@@ -204,6 +205,40 @@ const TOOL_SPECS = [
 ];
 
 // ---------------------------------------------------------------
+// PROJECT READ TOOLS — ใช้อ่านและสำรวจ workspace ที่เลือกได้ทุกโหมด
+const PROJECT_READ_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "file_list",
+      description: "List files and folders in the currently selected project directory. Use this first to understand the project structure and discover exact relative paths before file_read. Hidden/system folders, dependencies, build output, and secrets are omitted. Read-only; never accesses outside the selected project.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Optional relative folder to inspect; omit or use . for the project root" },
+          maxDepth: { type: "integer", description: "Optional depth from 1 to 4; defaults to 2" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "file_grep",
+      description:
+        "Search text files in the currently selected project directory (regex, case-insensitive by default) for a pattern. Use to find relevant code or configuration; results are relative path:line matches. Secret files, hidden/system folders, dependencies, and build output are skipped. Read-only; never accesses outside the selected project.",
+      parameters: {
+        type: "object",
+        properties: {
+          pattern: { type: "string", description: "Regular expression to search for" },
+          include: { type: "string", description: "Optional filename glob filter, e.g. *.js" },
+        },
+        required: ["pattern"],
+      },
+    },
+  },
+];
+
 // CODE MODE TOOLS — เพิ่มเฉพาะเมื่อรันโหมด "เขียนโค้ด" (ส่งผ่าน getTools("code"))
 // พื้นฐาน: SWE-agent ACI = ออกแบบ tool ให้ทำพลาดยาก (exact-match edit, แบบคำสั่งทำลาย)
 // ---------------------------------------------------------------
@@ -213,12 +248,12 @@ const CODE_TOOLS = [
     function: {
       name: "run_command",
       description:
-        "Run a shell command in the project directory using the server process's full OS permissions. Available to admins only; command-pattern blocking is not an OS sandbox. Only use when the user explicitly asks for command execution or code verification. Returns stdout/stderr + exit code.",
+        "Run a compile, test, or development command inside a disposable Docker sandbox for the currently selected project. Only the selected project is mounted; the container has no network by default, a read-only system filesystem, reduced capabilities, and resource/time limits. Available to admins only. Use only when the user asks to run or verify code. Do not use Docker commands or request privileged mode.",
       parameters: {
         type: "object",
         properties: {
           command: { type: "string", description: "Shell command to run, e.g. `node test-mock.js`" },
-          timeoutMs: { type: "number", description: "Optional timeout in ms, default 15000, max 60000" },
+          timeoutMs: { type: "number", description: "Optional timeout in ms, default 120000, max 600000" },
         },
         required: ["command"],
       },
@@ -239,22 +274,6 @@ const CODE_TOOLS = [
           replace_all: { type: "boolean", description: "Replace every occurrence of oldString" },
         },
         required: ["path", "oldString", "newString"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "file_grep",
-      description:
-        "Search all text files in the project (regex, case-insensitive by default) for a pattern — use INSTEAD of reading whole files to find where to edit. Returns path:line matches (max 60).",
-      parameters: {
-        type: "object",
-        properties: {
-          pattern: { type: "string", description: "Regular expression to search for" },
-          include: { type: "string", description: "Optional filename glob filter, e.g. *.js" },
-        },
-        required: ["pattern"],
       },
     },
   },
@@ -284,7 +303,7 @@ const TOOL_CREATE = {
 };
 const getTools = (mode, planExtra = {}) => {
   const trusted = planExtra.trusted !== false;
-  const base = mode === "code" ? [...TOOL_SPECS, ...CODE_TOOLS] : [...TOOL_SPECS];
+  const base = mode === "code" ? [...TOOL_SPECS, ...PROJECT_READ_TOOLS, ...CODE_TOOLS] : [...TOOL_SPECS, ...PROJECT_READ_TOOLS];
   return [
     ...base.filter((t) => trusted || t.function.name !== "run_command"),
     ...(trusted ? [TOOL_CREATE] : []),
@@ -327,8 +346,8 @@ Three loops to keep alive:
 3. Task → reusable: when you found a way that WORKS for a task type, save the key steps via memory_save so the next run starts closer to done. Only save genuinely reusable patterns, not one-off trivia.
 Stay frugal with tokens — the compounding loop is only net-positive because each run spends less than the one before.`;
 // Sub-agent ได้เฉพาะ tool ข้อมูลอ่านอย่างเดียว — ห้ามแตะไฟล์/memory/สร้างงานซ้อน
-const SUBAGENT_EXCLUDE = new Set(["research_subagent", "memory_save", "memory_recall", "file_write", "file_read", "js_eval"]);
-const SUBAGENT_TOOLS = TOOL_SPECS.filter((t) => !SUBAGENT_EXCLUDE.has(t.function.name));
+const SUBAGENT_EXCLUDE = new Set(["research_subagent", "memory_save", "memory_recall", "file_write", "js_eval"]);
+const SUBAGENT_TOOLS = [...TOOL_SPECS, ...PROJECT_READ_TOOLS].filter((t) => !SUBAGENT_EXCLUDE.has(t.function.name));
 const MAX_SUBAGENT_DEPTH = 1;
 
 const SYSTEM_PROMPT = `You are a careful web-research agent.
@@ -481,16 +500,48 @@ const rootOf = (ctx) => (ctx && ctx.root) || PROJECT_ROOT;
 function safeProjectPath(rel, root) {
   const R = root || PROJECT_ROOT;
   const abs = safePathInRoot(R, String(rel || ""));
-  if (/openrouter_key|node_modules|\.git|\.agent_memory|agent_playbook\.json|agent-events\.jsonl/.test(abs)) {
+  if (/(?:^|[\\/])(?:openrouter_key|node_modules|\.git|\.agent_memory|agent_playbook\.json|agent-events\.jsonl|\.env(?:\.[^\\/]*)?)(?:[\\/]|$)/i.test(abs)) {
     throw new Error("Access denied (protected file)");
   }
   return abs;
 }
 
-const TEXT_EXT = /\.(md|txt|json|csv|js|mjs|cjs|ts|jsx|tsx|py|sh|bat|ps1|yml|yaml|html?|css)$/i;
+const TEXT_EXT = /\.(md|mdx|txt|json|jsonc|csv|tsv|js|mjs|cjs|ts|tsx|jsx|py|sh|bash|bat|ps1|yml|yaml|toml|ini|cfg|properties|html?|css|scss|sass|less|vue|svelte|astro|rs|go|java|kt|swift|c|cc|cpp|h|hpp|cs|sql|xml|proto)$/i;
+const TEXT_BASENAMES = new Set(["dockerfile", "makefile", "procfile", "justfile", "gemfile", "rakefile"]);
+function isProjectTextFile(filePath) {
+  return TEXT_EXT.test(filePath) || TEXT_BASENAMES.has(path.basename(filePath).toLowerCase());
+}
+const PROJECT_SKIP_DIRS = new Set([".git", "node_modules", ".agent_memory", "agent_checkpoints", "agent_workspaces", ".next", ".cache", "coverage", "dist", "build", "target", ".venv"]);
+function toolFileList({ path: rel = ".", maxDepth }, ctx) {
+  const R = rootOf(ctx);
+  const start = safeProjectPath(rel, R);
+  if (!fs.statSync(start).isDirectory()) throw new Error("เลือกได้เฉพาะโฟลเดอร์");
+  const depthLimit = Math.min(4, Math.max(1, Number.isInteger(maxDepth) ? maxDepth : 2));
+  const maxEntries = 240;
+  const entries = [];
+  let truncated = false;
+  const walk = (dir, depth) => {
+    const children = fs.readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => !entry.isSymbolicLink() && !PROJECT_SKIP_DIRS.has(entry.name))
+      .filter((entry) => !entry.name.startsWith(".") || (entry.isFile() && entry.name.toLowerCase() !== ".env"))
+      .sort((a, b) => (Number(b.isDirectory()) - Number(a.isDirectory())) || a.name.localeCompare(b.name));
+    for (const entry of children) {
+      const full = path.join(dir, entry.name);
+      try { safeProjectPath(path.relative(R, full), R); } catch { continue; }
+      const relative = path.relative(R, full).replace(/\\/g, "/");
+      entries.push((entry.isDirectory() ? "📁 " + relative + "/" : "📄 " + relative));
+      if (entries.length >= maxEntries) { truncated = true; return; }
+      if (entry.isDirectory() && depth < depthLimit) walk(full, depth + 1);
+      if (truncated) return;
+    }
+  };
+  walk(start, 1);
+  if (!entries.length) return `No visible files or folders in ${path.relative(R, start) || "."}.`;
+  return `### PROJECT FILES (paths relative to selected project; depth ${depthLimit})\n${entries.join("\n")}${truncated ? "\n…[truncated at 240 entries; narrow path or increase maxDepth only if needed]" : ""}`;
+}
 function toolFileRead({ path: rel }, ctx) {
   const abs = safeProjectPath(rel, rootOf(ctx));
-  if (!TEXT_EXT.test(abs)) throw new Error("Only text file extensions are allowed (md/txt/json/csv/js/ts/jsx/html/css/py/sh/bat/ps1/yml)");
+  if (!isProjectTextFile(abs)) throw new Error("ไฟล์ชนิดนี้ไม่รองรับการอ่านแบบข้อความ");
   if (!fs.existsSync(abs)) throw new Error(`File not found: ${rel}`);
   const text = fs.readFileSync(abs, "utf8");
   return `### FILE ${rel}\n${truncate(text, 20000)}`;
@@ -549,7 +600,7 @@ function saveSkill(list, entry) {
 }
 
 // ห้ามชนชื่อกับ built-in (web_search/file_edit/...)
-const BUILT_IN_NAMES = new Set([...TOOL_SPECS, ...CODE_TOOLS].map((t) => t.function.name));
+const BUILT_IN_NAMES = new Set([...TOOL_SPECS, ...PROJECT_READ_TOOLS, ...CODE_TOOLS].map((t) => t.function.name));
 
 async function toolToolCreate({ name, description, code, test_args, params }) {
   name = String(name || "");
@@ -628,25 +679,149 @@ function runCustomTool(name, args, signal) {
 // CODE MODE tools — รันคำสั่ง / แก้ไฟล์แบบ exact-match / grep โปรเจ็คต์
 // หลักการ SWE-agent: ผู้โทร (โมเดล) ทำพลาดได้ยากที่สุดที่เท่าที่ออกแบบได้
 // ---------------------------------------------------------------
+const SANDBOX_IMAGE_BY_COMMAND = [
+  [/\b(?:python3?|pytest|pip3?|uv|poetry)\b/i, "python:3.13-slim"],
+  [/\b(?:cargo|rustc)\b/i, "rust:1-slim"],
+  [/\b(?:go\s+(?:test|build|run)|go\s+version)\b/i, "golang:1.25-bookworm"],
+  [/\b(?:dotnet)\b/i, "mcr.microsoft.com/dotnet/sdk:10.0"],
+  [/\b(?:mvn|maven|gradle|java|javac)\b/i, "maven:3-eclipse-temurin-21"],
+  [/\b(?:npm|npx|pnpm|yarn|node|bun)\b/i, "node:24-bookworm-slim"],
+  [/\b(?:gcc|g\+\+|clang|cmake|make)\b/i, "gcc:14"],
+];
+function sandboxImageFor(root, command) {
+  const configured = process.env.AGENT_SANDBOX_IMAGE;
+  if (configured) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$/.test(configured)) throw new Error("AGENT_SANDBOX_IMAGE has an invalid image name");
+    return configured;
+  }
+  const commandImage = SANDBOX_IMAGE_BY_COMMAND.find(([re]) => re.test(command));
+  if (commandImage) return commandImage[1];
+  const has = (name) => fs.existsSync(path.join(root, name));
+  if (has("pyproject.toml") || has("requirements.txt") || has("setup.py")) return "python:3.13-slim";
+  if (has("Cargo.toml")) return "rust:1-slim";
+  if (has("go.mod")) return "golang:1.25-bookworm";
+  if (has("pom.xml") || has("build.gradle") || has("build.gradle.kts")) return "maven:3-eclipse-temurin-21";
+  if (has("package.json")) return "node:24-bookworm-slim";
+  if (has("CMakeLists.txt") || has("Makefile")) return "gcc:14";
+  return null;
+}
+
+const SANDBOX_SKIP_DIRS = new Set(["node_modules", ".venv", "venv", "vendor", "target", "dist", "build", ".next", ".cache"]);
+const SANDBOX_SECRET_FILES = [/^\.env(?:\..*)?$/i, /^\.openrouter_key$/i, /^openrouter_key(?:\..*)?$/i, /^(?:id_rsa|id_ed25519|id_ecdsa|id_dsa)(?:\.pub)?$/i, /\.(?:pem|p12|pfx|key)$/i];
+const SANDBOX_SECRET_DIRS = new Set([".git", ".aws", ".ssh", ".azure", ".kube", ".gnupg"]);
+function collectSandboxSecrets(root) {
+  const secrets = [];
+  const maxSecrets = 128;
+  let scanned = 0;
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (++scanned > 50000) throw new Error("โปรเจกต์มีรายการไฟล์มากเกินไปสำหรับการตรวจข้อมูลลับก่อนเปิด sandbox");
+      if (entry.isSymbolicLink()) continue;
+      const full = path.join(dir, entry.name);
+      const entryName = entry.name.toLowerCase();
+      if (entry.isDirectory() && SANDBOX_SECRET_DIRS.has(entryName)) {
+        secrets.push({ path: full, directory: true });
+      } else if (SANDBOX_SECRET_FILES.some((pattern) => pattern.test(entry.name))) {
+        secrets.push({ path: full, directory: false });
+      } else if (entry.isDirectory() && !SANDBOX_SKIP_DIRS.has(entryName)) {
+        walk(full);
+      }
+      if (secrets.length > maxSecrets) throw new Error("พบไฟล์/โฟลเดอร์ข้อมูลลับในโปรเจกต์มากเกินกว่าจะซ่อนไว้ใน sandbox อย่างปลอดภัย");
+    }
+  };
+  walk(root);
+  return secrets;
+}
+
 function toolRunCommand({ command, timeoutMs }, ctx) {
   const cmd = String(command || "");
   if (!cmd.trim()) throw new Error("command required");
+  if (cmd.length > 12000) throw new Error("command too long (max 12000 chars)");
   if (DANGER_RE.test(cmd)) throw new Error("Blocked: potentially destructive command");
-  const { exec } = require("node:child_process");
-  const t = Math.min(Math.max(Number(timeoutMs) || 15000, 2000), 60000);
+  const root = fs.realpathSync(rootOf(ctx));
+  if (!fs.statSync(root).isDirectory()) throw new Error("selected project directory is unavailable");
+  const image = sandboxImageFor(root, cmd);
+  if (!image) throw new Error("ไม่พบ runtime สำหรับ sandbox ในโปรเจกต์นี้ ตั้งค่า AGENT_SANDBOX_IMAGE เป็น image ที่เชื่อถือได้ก่อนรันคำสั่ง");
+  const network = process.env.AGENT_SANDBOX_NETWORK || "none";
+  if (!new Set(["none", "bridge"]).has(network)) throw new Error("AGENT_SANDBOX_NETWORK รองรับเฉพาะ none หรือ bridge");
+  if (root.includes(",") || root.includes("\n")) throw new Error("พาธโปรเจกต์มีอักขระที่ Docker mount ยังไม่รองรับ");
+  const t = Math.min(Math.max(Number(timeoutMs) || 120000, 2000), 600000);
   const t0 = Date.now();
-  return new Promise((resolve) => {
-    exec(cmd, { cwd: rootOf(ctx), windowsHide: true, timeout: t, maxBuffer: 1024 * 1024, shell: true }, (err, stdout, stderr) => {
-      const out = scrubSecrets(String(stdout || "").slice(0, 6000));
-      const to = scrubSecrets(String(stderr || "").slice(0, 2000));
-      const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
-      const tail = err && err.killed ? "…[killed on timeout]" : "";
-      const result = `### RUN: ${cmd}\nexit ${code}${tail}\n${out ? "--- stdout ---\n" + out : ""}${to ? "--- stderr ---\n" + to : ""}`.trim();
-      // v16 run panel: ส่งผลการรันแบบมีโครงสร้างไป UI (SSE type 'run') — log เดิมไม่กระทบ
-      try { ctx?.onRun?.({ cmd, code, ms: Date.now() - t0, text: truncate(String(stdout || "") + (to ? "\n[stderr] " + to : ""), 2000) }); } catch { /* แผงรันพังไม่กระทบ run */ }
-      resolve(result);
+  const name = "agent-sandbox-" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+  let maskRoot = null;
+  try {
+    const secrets = collectSandboxSecrets(root);
+    if (secrets.some((entry) => entry.path.includes(",") || entry.path.includes("\n"))) throw new Error("ชื่อไฟล์ข้อมูลลับมีอักขระที่ Docker mount ยังไม่รองรับ");
+    if (secrets.length) {
+      maskRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agent-sandbox-mask-"));
+      fs.writeFileSync(path.join(maskRoot, "empty-file"), "", "utf8");
+      fs.mkdirSync(path.join(maskRoot, "empty-dir"));
+    }
+    const args = [
+      "run", "--pull=missing", "--rm", "--name", name,
+      "--network", network,
+      "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+      "--pids-limit=256", "--memory=3g", "--cpus=2",
+      "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g",
+      "--mount", `type=bind,source=${root},target=/workspace`,
+      "--env", "HOME=/tmp", "--env", "TMPDIR=/tmp", "--env", "CARGO_HOME=/tmp/cargo", "--env", "CARGO_TARGET_DIR=/tmp/cargo-target",
+      "--env", "GOPATH=/tmp/go", "--env", "GOCACHE=/tmp/go-cache", "--env", "npm_config_cache=/tmp/npm-cache",
+      "--env", "PIP_CACHE_DIR=/tmp/pip-cache", "--env", "MAVEN_CONFIG=/tmp/maven",
+      "--workdir", "/workspace", "--user", "1000:1000",
+    ];
+    if (maskRoot) {
+      const emptyFile = path.join(maskRoot, "empty-file");
+      const emptyDir = path.join(maskRoot, "empty-dir");
+      for (const secret of secrets) {
+        const relative = path.relative(root, secret.path).split(path.sep).join("/");
+        const source = secret.directory ? emptyDir : emptyFile;
+        args.push("--mount", `type=bind,source=${source},target=/workspace/${relative},readonly`);
+      }
+    }
+    args.push("--entrypoint", "/bin/sh", image, "-lc", cmd);
+
+    return new Promise((resolve) => {
+      let settled = false, stopping = false;
+      let timer;
+      let child;
+      const clean = () => {
+        clearTimeout(timer);
+        ctx?.signal?.removeEventListener("abort", onAbort);
+        if (maskRoot) { try { fs.rmSync(maskRoot, { recursive: true, force: true }); } catch {} }
+      };
+      const finish = (value) => { if (settled) return; settled = true; clean(); resolve(value); };
+      const stopContainer = (reason) => {
+        if (settled || stopping) return;
+        stopping = true;
+        try { child?.kill(); } catch {}
+        execFile("docker", ["stop", "--time", "2", name], { windowsHide: true, timeout: 8000, maxBuffer: 64 * 1024 }, () => {
+          execFile("docker", ["rm", "--force", name], { windowsHide: true, timeout: 8000, maxBuffer: 64 * 1024 }, () => finish(reason));
+        });
+      };
+      const onAbort = () => stopContainer("Error: sandbox command cancelled");
+      timer = setTimeout(() => stopContainer(`Error: sandbox command timed out after ${Math.round(t / 1000)}s`), t);
+      child = execFile("docker", args, { windowsHide: true, encoding: "utf8", maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+        if (stopping) return;
+        const out = scrubSecrets(String(stdout || "").slice(0, 6000));
+        const to = scrubSecrets(String(stderr || "").slice(0, 2000));
+        const code = err ? (typeof err.code === "number" ? err.code : 1) : 0;
+        const diagnostic = /permission denied|cannot connect|is the docker daemon running|error during connect/i.test(to)
+          ? "\nDocker Engine ใช้งานไม่ได้สำหรับ server นี้ — ไม่ได้สลับไปรันคำสั่งบน host"
+          : "";
+        const safeCmd = scrubSecrets(cmd);
+        const result = `### SANDBOX RUN (${image}, network=${network}): ${safeCmd}\nexit ${code}\n${out ? "--- stdout ---\n" + out : ""}${to ? "--- stderr ---\n" + to : ""}${diagnostic}`.trim();
+        try { ctx?.onRun?.({ cmd: safeCmd, code, ms: Date.now() - t0, text: truncate(out + (to ? "\n[stderr] " + to : ""), 2000) }); } catch { /* แผงรันพังไม่กระทบรัน */ }
+        finish(result);
+      });
+      if (ctx?.signal?.aborted) onAbort();
+      else ctx?.signal?.addEventListener("abort", onAbort, { once: true });
     });
-  });
+  } catch (error) {
+    if (maskRoot) { try { fs.rmSync(maskRoot, { recursive: true, force: true }); } catch {} }
+    throw error;
+  }
 }
 
 function toolFileEdit({ path: rel, oldString, newString, replace_all }, ctx) {
@@ -680,9 +855,10 @@ function toolFileGrep({ pattern, include }, ctx) {
       const p = path.join(dir, name);
       let st; try { st = fs.lstatSync(p); } catch { continue; }
       if (st.isSymbolicLink()) continue;
-      if (st.isDirectory()) { if (/^(node_modules|\.git|reports)$/.test(name)) continue; walk(p); continue; }
+      if (st.isDirectory()) { if (PROJECT_SKIP_DIRS.has(name) || name.startsWith(".")) continue; walk(p); continue; }
+      try { safeProjectPath(path.relative(R, p), R); } catch { continue; }
       if (glob && !glob.test(name)) continue;
-      if (!TEXT_EXT.test(name) || /openrouter_key|\.agent_memory|agent_playbook|agent-events/.test(name)) continue;
+      if (!isProjectTextFile(name)) continue;
       let lines; try { lines = fs.readFileSync(p, "utf8").split(/\r?\n/); } catch { continue; }
       for (let i = 0; i < lines.length; i++) {
         if (re.test(lines[i])) {
@@ -1463,6 +1639,7 @@ async function runSubagent(brief, ctx) {
     maxSteps: 6,
     noBanner: true,
     temp: ctx.temp,
+    root: ctx.root,
     signal: ctx.signal,   // กด Stop → ยกเลิก sub-agent ด้วย
     onLog: ctx.onLog,     // log ของ sub-agent ยังไหลขึ้น UI เหมือนเดิม
     trusted: ctx.trusted,
@@ -1478,6 +1655,7 @@ async function runTool(name, args, ctx) {
   if (name === "get_datetime") return toolGetDatetime();
   if (name === "calculator") return toolCalculator(args);
   if (name === "js_eval") return toolJsEval(args, ctx.signal);
+  if (name === "file_list") return toolFileList(args, ctx);
   if (name === "file_read") return toolFileRead(args, ctx);
   if (name === "file_write") return toolFileWrite(args, ctx);
   if (name === "run_command") return toolRunCommand(args, ctx);
@@ -1561,6 +1739,9 @@ async function agentLoopCore(userTask, {
 
   // system prompt: ผนวกวันที่ + memory keys + playbook เฉพาะ orchestrator (sub-agent ตัดของฟุ่มเฟือย)
   let system = SYSTEM_PROMPT;
+  if (ctx.root) {
+    system += "\n\n# Active project workspace\nA project directory is selected for this session and is available through file_list, file_read, and file_grep. Start with file_list to discover its structure; use relative paths for all project tools. Delegated sub-agents have the same project directory. Do not claim it is inaccessible unless a tool returns an access error.";
+  }
   if (depth === 0) system += SESSION_FOCUS_RULES;
   if (mode === "code" && depth === 0) system += trusted ? CODE_RULES : MEMBER_CODE_RULES;
   if (depth === 0) system += trusted ? TOOL_RULES : "\n== CUSTOM TOOL ACCESS ==\nCustom tools can only be created or run by admins.\n";

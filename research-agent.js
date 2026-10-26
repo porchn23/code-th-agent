@@ -36,8 +36,9 @@ const CONFIG = {
   searchMaxChars: 3000,
   subagentFetchChars: 2600, // sub-agent นอกจักรวาลหลัก → เลี้ยงให้อ้วนน้อยกว่า
   // ---- token thrift ----
-  maxHistoryMsgs: 8, // จำนวน Q&A เก่าสูงสุดที่ยอมให้ติดไปกับแต่ละคำถาม
-  maxHistoryChars: 1200, // ตัดบทสนทนาเก่าแต่ละเมล์ไม่ให้ยาวเกิน
+  maxHistoryMsgs: 8, // ประวัติดิบคงขนาดสั้น จนกว่าจะเพิ่มระบบสรุปบริบท
+  maxHistoryChars: 1200,
+  maxHistoryTotalChars: 8000,
   keepToolResults: 2, // ผล tool N อันล่าสุดเก็บเต็ม — อันเก่ากว่านั้นหั่นสั้น
   trimOldToolChars: 300,
   // ---- memory ----
@@ -342,6 +343,58 @@ Rules:
 8. Token thrift: never repeat an identical tool call — earlier results are still in your context and duplicates are silently replaced by a cache notice. Read each result carefully before acting. Stop as soon as you can answer well.
 9. Long-term memory: if the user reveals a useful personal fact (name, preferences, projects), save it once with memory_save. If "Known memory keys" are listed below and any is clearly relevant, memory_recall it. Never save trivia.
 10. If the user asks to save/report to file, use file_write (goes to reports/) and mention the file path in your answer. Use calculator (or js_eval for anything complex) for all math.`;
+
+const SESSION_FOCUS_RULES = `
+== SESSION FOCUS AND CONVERSATION CONTINUITY ==
+- Keep the session's original project goal as the main objective. Later messages may clarify, correct, ask a side question, or report status; do not replace the main objective just because a message is newer.
+- Carry forward earlier requirements, decisions, constraints, and unfinished work. Treat a later message as a new main task only when the user clearly changes or ends the project.
+- Separate emotional tone from project content. Insults or profanity are not requirements, scope, or project feedback; ignore them and act only on any clear, actionable request in the same message. Never let abusive wording redirect the project.`;
+
+// Strip strong insults from natural language before sending it as project context.
+// Preserve inline/fenced code so code, paths, and identifiers remain exact.
+const PROJECT_ABUSE_RE = /(?:ไอ้\s*)?(?:เหี้ย|สัส|ควาย|ควย|โง่|ปัญญาอ่อน|ห่วย|ไร้ประโยชน์)|\b(?:idiot|stupid|moron|useless|dumb|fuck(?:ing)?|shit|asshole|bitch)\b/giu;
+const PROJECT_ABUSE_CHECK_RE = new RegExp(PROJECT_ABUSE_RE.source, "iu");
+const PROJECT_ACTION_RE = /(?:แก้|ทำ|ช่วย|เพิ่ม|เปลี่ยน|ปรับ|สร้าง|ลบ|ย้าย|แยก|โฟกัส|สนใจ|ตรวจ|ทดสอบ|รัน|เปิด|ปิด|ต่อ|พัฒนา|ต้อง|ควร|อยาก|ปัญหา|บั๊ก|พัง|ผิด|ไม่ผ่าน|error|fail|bug|issue|fix|add|change|update|build|create|remove|move|check|test|run|need|should|please|want|broken)/iu;
+function cleanProjectContext(value) {
+  const parts = String(value ?? "").split(/(```[\s\S]*?```|`[^`]*`)/g);
+  let hasAbuse = false;
+  const cleaned = parts.map((part, i) => {
+    if (i % 2) return part;
+    if (PROJECT_ABUSE_CHECK_RE.test(part)) hasAbuse = true;
+    return part.replace(PROJECT_ABUSE_RE, " ");
+  }).join("").replace(/[ \t]{2,}/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim();
+  // Drop abuse-only remarks; keep a message that still contains an actionable request or issue.
+  return hasAbuse && !PROJECT_ACTION_RE.test(cleaned) ? "" : cleaned;
+}
+
+function prepareSessionHistory(history) {
+  const valid = (Array.isArray(history) ? history : [])
+    .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+    .map((m) => ({ role: m.role, content: cleanProjectContext(m.content).slice(0, CONFIG.maxHistoryChars) }))
+    .filter((m) => m.content.length > 0);
+  if (!valid.length) return [];
+
+  // Keep the first meaningful user request as the session anchor even in long chats.
+  const anchor = valid.find((m) => m.role === "user");
+  const recent = valid.slice(-CONFIG.maxHistoryMsgs);
+  const ordered = anchor && !recent.includes(anchor) ? [anchor, ...recent].slice(0, CONFIG.maxHistoryMsgs) : recent;
+  const selected = [];
+  let budget = CONFIG.maxHistoryTotalChars;
+  if (anchor) {
+    selected.push(anchor);
+    budget -= anchor.content.length;
+  }
+  const tail = [];
+  for (let i = ordered.length - 1; i >= 0 && budget > 0; i--) {
+    const msg = ordered[i];
+    if (msg === anchor) continue;
+    const content = msg.content.slice(0, Math.min(CONFIG.maxHistoryChars, budget));
+    if (!content) continue;
+    tail.unshift({ role: msg.role, content });
+    budget -= content.length;
+  }
+  return anchor ? [anchor, ...tail] : tail;
+}
 
 // ---------------------------------------------------------------
 // เล็กๆ น้อยๆ: log มีสี + ตัดข้อความยาว + ประมาณ token
@@ -1508,6 +1561,7 @@ async function agentLoopCore(userTask, {
 
   // system prompt: ผนวกวันที่ + memory keys + playbook เฉพาะ orchestrator (sub-agent ตัดของฟุ่มเฟือย)
   let system = SYSTEM_PROMPT;
+  if (depth === 0) system += SESSION_FOCUS_RULES;
   if (mode === "code" && depth === 0) system += trusted ? CODE_RULES : MEMBER_CODE_RULES;
   if (depth === 0) system += trusted ? TOOL_RULES : "\n== CUSTOM TOOL ACCESS ==\nCustom tools can only be created or run by admins.\n";
   if (depth === 0) system += trusted ? SPARK_RULES : SPARK_RULES.replace("build it once with tool_create instead of improvising every time.", "custom tools are admin-only; ask an admin to create a recurring tool.");
@@ -1544,9 +1598,10 @@ async function agentLoopCore(userTask, {
   }
 
   // messages = context ทั้งหมดที่โมเดลมองเห็น (system -> history -> user -> tool results -> ...)
+  const sessionHistory = prepareSessionHistory(history);
   const messages = [
     { role: "system", content: system },
-    ...history.slice(-CONFIG.maxHistoryMsgs).map((m) => ({ role: m.role, content: truncate(m.content, CONFIG.maxHistoryChars) })),
+    ...sessionHistory,
     { role: "user", content: userTask },
   ];
 
@@ -1629,10 +1684,15 @@ function finalizeLearning(ctx, userTask, depth) {
 // agentLoop = agentLoopCore + Circuit 1 learn-hook ที่ห้ามพลาด (จับทั้ง return ปกติและ throw เช่น กด Stop)
 async function agentLoop(userTask, opts = {}) {
   const depth = opts.depth ?? 0;
+  const focusedTask = cleanProjectContext(userTask);
+  if (!focusedTask) {
+    return "ถ้าต้องการให้ช่วยงานในโปรเจกต์ โปรดบอกสิ่งที่อยากให้ทำหรือแก้ต่อได้เลยครับ";
+  }
+  const focusedOpts = { ...opts, history: prepareSessionHistory(opts.history) };
   try {
-    return await agentLoopCore(userTask, opts);
+    return await agentLoopCore(focusedTask, focusedOpts);
   } finally {
-    try { finalizeLearning(depth === 0 ? LAST_CTX : null, userTask, depth); } catch { /* ไม่มีข้อผิดพลาดจากการเรียนรู้ */ }
+    try { finalizeLearning(depth === 0 ? LAST_CTX : null, focusedTask, depth); } catch { /* ไม่มีข้อผิดพลาดจากการเรียนรู้ */ }
   }
 }
 
@@ -1715,4 +1775,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { CONFIG, agentLoop, getApiKey, log, C, truncate, loadPlaybookForTask, addRule, loadPlaybook, playbookSummary, reflectOnRun, learnFromRun, getTools, CODE_TOOLS, SUBAGENT_TOOLS, loadSkills, loadEvalsForTask, addEval, loadEvals, evalSummary, loadAgentsRules, AGENTS_FILE, PLAN_FILE, loadPlan, getToolsPlanSpec: PLAN_SPECS, loadCkpts, checkpointBefore, restoreCheckpoint, diffCheckpoint, diffText, whenLearned: () => LAST_LEARN };
+module.exports = { CONFIG, agentLoop, prepareSessionHistory, getApiKey, log, C, truncate, loadPlaybookForTask, addRule, loadPlaybook, playbookSummary, reflectOnRun, learnFromRun, getTools, CODE_TOOLS, SUBAGENT_TOOLS, loadSkills, loadEvalsForTask, addEval, loadEvals, evalSummary, loadAgentsRules, AGENTS_FILE, PLAN_FILE, loadPlan, getToolsPlanSpec: PLAN_SPECS, loadCkpts, checkpointBefore, restoreCheckpoint, diffCheckpoint, diffText, whenLearned: () => LAST_LEARN };

@@ -13,9 +13,10 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { safePathInRoot } = require("./security-guards.js");
 const { readWorkspaceFile, writeWorkspaceFile } = require("./workspace-files.js");
-const { CONFIG, agentLoop, getApiKey, playbookSummary, evalSummary, getTools, loadSkills, loadAgentsRules, AGENTS_FILE, loadPlan, loadCkpts, restoreCheckpoint, diffCheckpoint } = require("./research-agent.js");
+const { CONFIG, agentLoop, prepareSessionHistory, getApiKey, playbookSummary, evalSummary, getTools, loadSkills, loadAgentsRules, AGENTS_FILE, loadPlan, loadCkpts, restoreCheckpoint, diffCheckpoint } = require("./research-agent.js");
 
 const PORT = Number(process.env.AGENT_PORT) || 8787;
 const ANSI_RE = /\x1b\[[0-9;]*m/g; // ลบสี ANSI ก่อนส่งไปหน้าเว็บ
@@ -57,7 +58,7 @@ let queuedItem = null; // คิวรอลึก 1 — แทนการ 429 
 // ต่างชื่อ = แยกบัญชี; รหัส hash เก็บใน agent_users.json (gitignored เสมอ)
 // ===============================================================
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const USERS_FILE = process.env.AGENT_USERS_FILE || path.join(__dirname, "agent_users.json");
 const WS_FILE = process.env.AGENT_WORKSPACES_FILE || path.join(__dirname, "agent_workspaces.json");
 const MEMBER_WS_ROOT = path.resolve(process.env.AGENT_WORKSPACE_ROOT || path.join(__dirname, "workspaces"));
@@ -183,6 +184,81 @@ function listWorktrees(dir) {
 
 // ---- tree/file explorer (ดูโครงสร้างโปรเจค) ----
 const TREE_SKIP = /^(node_modules|\.git|agent_checkpoints|\.agent_memory|agent_users|agent_workspaces)$/;
+function commandExists(command) {
+  try {
+    execFileSync(process.platform === "win32" ? "where.exe" : "which", [command], { stdio: "ignore", windowsHide: true });
+    return true;
+  } catch { return false; }
+}
+function runPickerProcess(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { windowsHide: options.windowsHide ?? true, stdio: ["ignore", "pipe", "pipe"], env: options.env || process.env });
+    let stdout = "", stderr = "", settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
+      fn(value);
+    };
+    const onAbort = () => { child.kill(); finish(reject, new Error("ยกเลิกการเลือกโฟลเดอร์")); };
+    const timer = setTimeout(() => { child.kill(); finish(reject, new Error("หน้าต่างเลือกโฟลเดอร์ไม่ตอบสนอง")); }, 180000);
+    if (options.signal?.aborted) return onAbort();
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    child.stdout.setEncoding("utf8"); child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.setEncoding("utf8"); child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", (error) => finish(reject, error));
+    child.on("close", (code) => {
+      if (code === 0) return finish(resolve, stdout.trim());
+      if (options.cancelCodes?.includes(code) || (options.cancelPattern && options.cancelPattern.test(stderr))) return finish(resolve, "");
+      finish(reject, new Error((stderr || `${command} exited with ${code}`).trim().slice(0, 400)));
+    });
+  });
+}
+async function pickDirectoryNative(startingPath = "", signal) {
+  if (process.platform === "win32") {
+    const powershell = commandExists("pwsh.exe") ? "pwsh.exe" : "powershell.exe";
+    const script = [
+      "$ErrorActionPreference = 'Stop'",
+      "[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)",
+      "Add-Type -AssemblyName System.Windows.Forms",
+      "[System.Windows.Forms.Application]::EnableVisualStyles()",
+      "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+      "$dialog.Description = 'เลือกโฟลเดอร์โปรเจกต์'",
+      "$dialog.UseDescriptionForTitle = $true",
+      "$dialog.AutoUpgradeEnabled = $true",
+      "$dialog.ShowPinnedPlaces = $true",
+      "$dialog.ShowNewFolderButton = $true",
+      "$dialog.RootFolder = [System.Environment+SpecialFolder]::MyComputer",
+      "$start = $env:AGENT_FOLDER_PICK_START",
+      "if ($start -and [System.IO.Directory]::Exists($start)) { $dialog.SelectedPath = $start }",
+      "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.SelectedPath) }",
+      "$dialog.Dispose()",
+    ].join("\r\n");
+    const selected = await runPickerProcess(powershell, ["-NoLogo", "-NoProfile", "-STA", "-Command", script], {
+      env: { ...process.env, AGENT_FOLDER_PICK_START: startingPath }, signal, windowsHide: false,
+    });
+    return { supported: true, path: selected };
+  }
+  if (process.platform === "darwin") {
+    const script = "try\nset pickedFolder to choose folder with prompt \"Choose a project folder\"\nreturn POSIX path of pickedFolder\non error number -128\nreturn \"\"\nend try";
+    const selected = await runPickerProcess("osascript", ["-e", script], { cancelPattern: /user canceled/i, signal });
+    return { supported: true, path: selected };
+  }
+  if (process.platform === "linux") {
+    if (commandExists("zenity")) {
+      const args = ["--file-selection", "--directory", "--title=Choose a project folder"];
+      if (startingPath) args.push("--filename=" + (startingPath.endsWith(path.sep) ? startingPath : startingPath + path.sep));
+      const selected = await runPickerProcess("zenity", args, { cancelCodes: [1], signal });
+      return { supported: true, path: selected };
+    }
+    if (commandExists("kdialog")) {
+      const selected = await runPickerProcess("kdialog", ["--getexistingdirectory", startingPath || os.homedir(), "--title", "Choose a project folder"], { cancelCodes: [1], signal });
+      return { supported: true, path: selected };
+    }
+  }
+  return { supported: false, path: null };
+}
 function safeTreePath(wsDir, rel) {
   return safeWorkspacePath(wsDir, rel);
 }
@@ -245,12 +321,7 @@ async function runTask(parsed, res) {
     const useSteps = Number.isInteger(maxSteps) ? Math.min(Math.max(maxSteps, 4), 24) : undefined;
     // history: Q&A ย้อนหลังของแชตเดียวกัน → agent จำบริบทได้ cross-turn
     // (sanitize: role/content กลั่นมาแล้วตัดสั้น กล่องเก่าถูก agent หั่นอีกทีเอง)
-    const cleanHistory = Array.isArray(history)
-      ? history
-          .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
-          .slice(-8)
-          .map((m) => ({ role: m.role, content: m.content.slice(0, 1200) }))
-      : [];
+    const cleanHistory = prepareSessionHistory(history);
     const answer = await agentLoop(task.trim(), {
       depth: 0,
       temp: useTemp,
@@ -662,21 +733,21 @@ const server = http.createServer(async (req, res) => {
     }).catch(() => jsonOut(400, { error: "invalid body" }));
   }
 
-  // ---- เลือกโฟลเดอร์โปรเจกต์ (แสดงเฉพาะโฟลเดอร์, admin/local เท่านั้น) ----
-  if (req.method === "GET" && req.url.startsWith("/api/directories?")) {
+  // ---- ตัวเลือกโฟลเดอร์ของระบบปฏิบัติการสำหรับเวอร์ชันเว็บที่รันบนเครื่องนี้ ----
+  if (req.method === "POST" && req.url === "/api/pick-directory") {
     const user = currentUser(req);
     if (!authOff() && (!user || user.role !== "admin")) return jsonOut(403, { error: "เฉพาะ admin ที่เลือกโฟลเดอร์เครื่องได้" });
-    try {
-      const qs = new URL(req.url, "http://x");
-      const current = path.resolve(qs.searchParams.get("path") || process.cwd());
-      if (!fs.statSync(current).isDirectory()) return jsonOut(400, { error: "ที่อยู่นี้ไม่ใช่โฟลเดอร์" });
-      const directories = fs.readdirSync(current, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
-        .map((entry) => ({ name: entry.name, path: path.join(current, entry.name) }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      const parent = path.dirname(current);
-      return jsonOut(200, { current, parent: parent === current ? null : parent, directories });
-    } catch (e) { return jsonOut(400, { error: e.message }); }
+    return readBody(req).then(async ({ startingPath }) => {
+      const start = typeof startingPath === "string" && startingPath ? path.resolve(startingPath) : "";
+      const controller = new AbortController();
+      res.on("close", () => { if (!res.writableEnded) controller.abort(); });
+      const result = await pickDirectoryNative(start, controller.signal);
+      if (!result.supported) return jsonOut(501, { error: "เครื่องนี้ไม่มีหน้าต่างเลือกโฟลเดอร์ของระบบที่เว็บเรียกใช้ได้" });
+      if (!result.path) return jsonOut(200, { path: null, cancelled: true });
+      const selected = path.resolve(result.path);
+      if (!fs.statSync(selected).isDirectory()) return jsonOut(400, { error: "โฟลเดอร์ที่เลือกไม่พร้อมใช้งาน" });
+      return jsonOut(200, { path: selected });
+    }).catch((error) => jsonOut(500, { error: "เปิดหน้าต่างเลือกโฟลเดอร์ไม่ได้: " + String(error.message || error).slice(0, 300) }));
   }
 
   // ---- ตัวสำรวจไฟล์ (tree 1 ระดับ + preview ไฟล์ text) ----
